@@ -37,6 +37,7 @@
 // includes, system
 #include <stdlib.h>
 #include <stdio.h>
+#include <iostream>
 #include <string.h>
 #include <math.h>
 
@@ -58,6 +59,8 @@
 #include <vector_types.h>
 #include <rendercheck_gl.h>
 
+using namespace std;
+
 #define MAX_EPSILON_ERROR 10.0f
 #define THRESHOLD		  0.30f
 // Define the files that are to be save and the reference images for validation
@@ -73,6 +76,82 @@ const char *sReference[] =
     NULL
 };
 
+////////////////////////////////////////////////////////////////////////////////
+// data structures
+struct Vertex
+{
+	float x;
+	float y;
+	float z;
+};
+
+struct VTexture
+{
+	float u;
+	float v;	
+};
+
+struct VNormal
+{
+	float x;
+	float y;
+	float z;
+};
+
+struct Face
+{
+	int v1;
+	int t1;
+	int n1;
+	
+	int v2;
+	int t2;
+	int n2;
+	
+	int v3;
+	int t3;
+	int n3;
+	
+	int v4;
+	int t4;
+	int n4;
+};
+
+struct Face3
+{
+	int v1;
+	int t1;
+	int n1;
+	
+	int v2;
+	int t2;
+	int n2;
+	
+	int v3;
+	int t3;
+	int n3;
+};
+
+struct obj
+{
+	Vertex v[50000];
+	VTexture vt[50000];
+	VNormal vn[50000];
+	Face f[50000];
+	Face3 f3[50000];
+	int vCount;
+	int fCount;
+	int f3Count;
+	
+	float ambient[3];
+	float diffuse[3];
+	float specular[3];
+	float shininess;
+	
+	int textureId;
+	char textureName[32];
+	char texturePath[32];
+};
 
 ////////////////////////////////////////////////////////////////////////////////
 // constants
@@ -130,6 +209,9 @@ CUTBoolean initGL(int argc, char** argv);
 void createVBO(GLuint* vbo, struct cudaGraphicsResource **vbo_res, 
 	       unsigned int vbo_res_flags);
 void deleteVBO(GLuint* vbo, struct cudaGraphicsResource *vbo_res);
+void drawCube();
+obj* loadOBJ(char* path);
+void drawOBJ(obj* model);
 
 // rendering callbacks
 void display();
@@ -144,6 +226,8 @@ void runAutoTest();
 void checkResultCuda(int argc, char** argv, const GLuint& vbo);
 
 const char *sSDKsample = "simpleGL (VBO)";
+
+obj* mesh = loadOBJ("/Developer/GPU Computing/C/src/pbrLoadPoly/polyModels/cactus.obj");
 
 ////////////////////////////////////////////////////////////////////////////////
 // Program main
@@ -280,7 +364,7 @@ CUTBoolean runTest(int argc, char** argv)
  		}
 		
 		// register callbacks
-		glutDisplayFunc(displayVBO);
+		glutDisplayFunc(display);
 		glutKeyboardFunc(keyboard);
 		glutMouseFunc(mouse);
 		glutMotionFunc(motion);
@@ -420,6 +504,31 @@ void deleteVBO(GLuint* vbo, struct cudaGraphicsResource *vbo_res)
 ////////////////////////////////////////////////////////////////////////////////
 void display()
 {
+    cutilCheckError(cutStartTimer(timer));  
+
+    // run CUDA kernel to generate vertex positions
+//      runCuda(&cuda_vbo_resource);
+
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    // set view matrix
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+    glTranslatef(0.0, 0.0, translate_z);
+    glRotatef(rotate_x, 1.0, 0.0, 0.0);
+    glRotatef(rotate_y, 0.0, 1.0, 0.0);
+
+// 	drawCube();
+	
+	drawOBJ(mesh);
+	
+    glutSwapBuffers();
+    glutPostRedisplay();
+
+    anim += 0.01;
+
+    cutilCheckError(cutStopTimer(timer));  
+    computeFPS();
 }
 
 void displayVBO()
@@ -557,4 +666,202 @@ void checkResultCuda(int argc, char** argv, const GLuint& vbo)
 	
 	CUT_CHECK_ERROR_GL();
     }
+}
+
+void drawCube()
+{
+	glBegin(GL_QUADS);
+		glVertex3f( 1.0f, 1.0f,-1.0f);			// Top Right Of The Quad (Top)
+		glVertex3f(-1.0f, 1.0f,-1.0f);			// Top Left Of The Quad (Top)
+		glVertex3f(-1.0f, 1.0f, 1.0f);			// Bottom Left Of The Quad (Top)
+		glVertex3f( 1.0f, 1.0f, 1.0f);			// Bottom Right Of The Quad (Top)
+
+		glVertex3f( 1.0f,-1.0f, 1.0f);			// Top Right Of The Quad (Bottom)
+		glVertex3f(-1.0f,-1.0f, 1.0f);			// Top Left Of The Quad (Bottom)
+		glVertex3f(-1.0f,-1.0f,-1.0f);			// Bottom Left Of The Quad (Bottom)
+		glVertex3f( 1.0f,-1.0f,-1.0f);			// Bottom Right Of The Quad (Bottom)
+		
+		glVertex3f( 1.0f, 1.0f, 1.0f);			// Top Right Of The Quad (Front)
+		glVertex3f(-1.0f, 1.0f, 1.0f);			// Top Left Of The Quad (Front)
+		glVertex3f(-1.0f,-1.0f, 1.0f);			// Bottom Left Of The Quad (Front)
+		glVertex3f( 1.0f,-1.0f, 1.0f);			// Bottom Right Of The Quad (Front)
+		
+		glVertex3f( 1.0f,-1.0f,-1.0f);			// Bottom Left Of The Quad (Back)
+		glVertex3f(-1.0f,-1.0f,-1.0f);			// Bottom Right Of The Quad (Back)
+		glVertex3f(-1.0f, 1.0f,-1.0f);			// Top Right Of The Quad (Back)
+		glVertex3f( 1.0f, 1.0f,-1.0f);			// Top Left Of The Quad (Back)
+
+		glVertex3f(-1.0f, 1.0f, 1.0f);			// Top Right Of The Quad (Left)
+		glVertex3f(-1.0f, 1.0f,-1.0f);			// Top Left Of The Quad (Left)
+		glVertex3f(-1.0f,-1.0f,-1.0f);			// Bottom Left Of The Quad (Left)
+		glVertex3f(-1.0f,-1.0f, 1.0f);			// Bottom Right Of The Quad (Left)
+		
+		glVertex3f( 1.0f, 1.0f,-1.0f);			// Top Right Of The Quad (Right)
+		glVertex3f( 1.0f, 1.0f, 1.0f);			// Top Left Of The Quad (Right)
+		glVertex3f( 1.0f,-1.0f, 1.0f);			// Bottom Left Of The Quad (Right)
+		glVertex3f( 1.0f,-1.0f,-1.0f);			// Bottom Right Of The Quad (Right)
+	glEnd();
+}
+
+obj* loadOBJ(char* path)
+{
+	int loaded;
+	char line[100];
+	obj* model;
+	model = (obj*) malloc(sizeof(obj));
+	
+	model->vCount = 0;
+	int vtCount = 0;
+	int vnCount = 0;
+	model->fCount = 0;
+	model->f3Count = 0;
+	
+	FILE *fp = fopen(path,"r");
+	
+	char mtllibName[32];
+	char mtllibPath[32];
+	
+	// inizializzo le stringhe
+	int i;
+	for (i=0; i<32; i++)
+	{
+		mtllibName[i] = '\0';
+		mtllibPath[i] = '\0';
+	}
+	
+	if (fp != NULL)
+	{
+		while (fgets(line, 99, fp))
+		{
+			if (line[0] == 'v')
+			{
+				// texture vertex
+				if (line[1] == 't')
+				{
+					sscanf(line, "%*c%*c %f %f", &model->vt[vtCount].u, &model->vt[vtCount].v);
+					vtCount++;
+				}
+				// normal vertex
+				else if (line[1] == 'n')
+				{
+					sscanf(line, "%*c%*c %f %f %f", &model->vn[vnCount].x, &model->vn[vnCount].y, &model->vn[vnCount].z);
+					vnCount++;
+				}
+				// vertex
+				else
+				{
+					sscanf(line, "%*c %f %f %f", &model->v[model->vCount].x, &model->v[model->vCount].y, &model->v[model->vCount].z);
+					model->vCount++;
+				}
+			}
+			// face
+			else if (line[0] == 'f')
+			{
+				int n = 0;
+				int spaceCount = 0;
+				while (line[n] != '\0')
+				{
+					if (line[n]==' ')
+						spaceCount++;
+					n++;
+				}
+				if (spaceCount == 3)
+				{
+					sscanf(line, "%*c %d/%d/%d %d/%d/%d %d/%d/%d",
+						   &model->f3[model->f3Count].v1, &model->f3[model->f3Count].t1, &model->f3[model->f3Count].n1,
+						   &model->f3[model->f3Count].v2, &model->f3[model->f3Count].t2, &model->f3[model->f3Count].n2,
+						   &model->f3[model->f3Count].v3, &model->f3[model->f3Count].t3, &model->f3[model->f3Count].n3);
+					model->f3Count++;
+				}
+				else if (spaceCount == 4)
+				{
+					sscanf(line, "%*c %d/%d/%d %d/%d/%d %d/%d/%d %d/%d/%d",
+						   &model->f[model->fCount].v1, &model->f[model->fCount].t1, &model->f[model->fCount].n1,
+						   &model->f[model->fCount].v2, &model->f[model->fCount].t2, &model->f[model->fCount].n2,
+						   &model->f[model->fCount].v3, &model->f[model->fCount].t3, &model->f[model->fCount].n3,
+						   &model->f[model->fCount].v4, &model->f[model->fCount].t4, &model->f[model->fCount].n4);
+					model->fCount++;
+				}
+			}
+// 			else if (strstr(line, "mtllib") != NULL)
+// 			{
+// 				strncpy(mtllibName, line+7, strlen(line)-8);
+// 				printf("%s", mtllibName);
+// 				sprintf(mtllibPath, "obj/%s", mtllibName);
+// 				printf(" %d\n",loadMTL(mtllibPath,model));
+// 				
+// 				// reinizializzo le stringhe
+// 				for (i=0; i<32; i++)
+// 				{
+// 					mtllibName[i] = '\0';
+// 					mtllibPath[i] = '\0';
+// 				}
+// 			}
+		}
+		loaded = 1;
+	}
+	else
+	{
+		loaded = 0;
+	}
+	
+	fclose(fp);
+	
+	return model;
+}
+
+void drawOBJ(obj* model)
+{
+	glMaterialfv(GL_FRONT, GL_AMBIENT, model->ambient);
+	glMaterialfv(GL_FRONT, GL_DIFFUSE, model->diffuse);
+	glMaterialfv(GL_FRONT, GL_SPECULAR, model->specular);
+	glMaterialf(GL_FRONT, GL_SHININESS, model->shininess);
+	
+	glEnable(GL_TEXTURE_2D);
+	glBindTexture(GL_TEXTURE_2D, model->textureId);
+	
+	glBegin(GL_QUADS);
+	
+	int i;
+	for (i=0; i<model->fCount; i++)
+	{
+		glNormal3f(model->vn[model->f[i].n1-1].x, model->vn[model->f[i].n1-1].y, model->vn[model->f[i].n1-1].z);
+		glTexCoord2f(model->vt[model->f[i].t1-1].u, model->vt[model->f[i].t1-1].v);
+		glVertex3f(model->v[model->f[i].v1-1].x, model->v[model->f[i].v1-1].y, model->v[model->f[i].v1-1].z);
+		
+		glNormal3f(model->vn[model->f[i].n2-1].x, model->vn[model->f[i].n2-1].y, model->vn[model->f[i].n2-1].z);
+		glTexCoord2f(model->vt[model->f[i].t2-1].u, model->vt[model->f[i].t2-1].v);
+		glVertex3f(model->v[model->f[i].v2-1].x, model->v[model->f[i].v2-1].y, model->v[model->f[i].v2-1].z);
+		
+		glNormal3f(model->vn[model->f[i].n3-1].x, model->vn[model->f[i].n3-1].y, model->vn[model->f[i].n3-1].z);
+		glTexCoord2f(model->vt[model->f[i].t3-1].u, model->vt[model->f[i].t3-1].v);
+		glVertex3f(model->v[model->f[i].v3-1].x, model->v[model->f[i].v3-1].y, model->v[model->f[i].v3-1].z);
+		
+		glNormal3f(model->vn[model->f[i].n4-1].x, model->vn[model->f[i].n4-1].y, model->vn[model->f[i].n4-1].z);
+		glTexCoord2f(model->vt[model->f[i].t4-1].u, model->vt[model->f[i].t4-1].v);
+		glVertex3f(model->v[model->f[i].v4-1].x, model->v[model->f[i].v4-1].y, model->v[model->f[i].v4-1].z);
+	}
+	
+	glEnd();
+	
+	glBegin(GL_TRIANGLES);
+	
+	for (i=0; i<model->f3Count; i++)
+	{
+		glNormal3f(model->vn[model->f3[i].n1-1].x, model->vn[model->f3[i].n1-1].y, model->vn[model->f3[i].n1-1].z);
+		glTexCoord2f(model->vt[model->f3[i].t1-1].u, model->vt[model->f3[i].t1-1].v);
+		glVertex3f(model->v[model->f3[i].v1-1].x, model->v[model->f3[i].v1-1].y, model->v[model->f3[i].v1-1].z);
+		
+		glNormal3f(model->vn[model->f3[i].n2-1].x, model->vn[model->f3[i].n2-1].y, model->vn[model->f3[i].n2-1].z);
+		glTexCoord2f(model->vt[model->f3[i].t2-1].u, model->vt[model->f3[i].t2-1].v);
+		glVertex3f(model->v[model->f3[i].v2-1].x, model->v[model->f3[i].v2-1].y, model->v[model->f3[i].v2-1].z);
+		
+		glNormal3f(model->vn[model->f3[i].n3-1].x, model->vn[model->f3[i].n3-1].y, model->vn[model->f3[i].n3-1].z);
+		glTexCoord2f(model->vt[model->f3[i].t3-1].u, model->vt[model->f3[i].t3-1].v);
+		glVertex3f(model->v[model->f3[i].v3-1].x, model->v[model->f3[i].v3-1].y, model->v[model->f3[i].v3-1].z);
+	}
+	
+	glEnd();
+	
+	glDisable(GL_TEXTURE_2D);
 }

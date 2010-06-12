@@ -38,7 +38,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <iostream>
-#include <string.h>
+#include <fstream>
+#include <string>
 #include <math.h>
 
 // includes, GL
@@ -88,7 +89,7 @@ struct Vertex
 struct VTexture
 {
 	float u;
-	float v;	
+	float v;
 };
 
 struct VNormal
@@ -210,7 +211,7 @@ void createVBO(GLuint* vbo, struct cudaGraphicsResource **vbo_res,
 	       unsigned int vbo_res_flags);
 void deleteVBO(GLuint* vbo, struct cudaGraphicsResource *vbo_res);
 void drawCube();
-obj* loadOBJ(char* path);
+obj* loadOBJ(const char* path);
 void drawOBJ(obj* model);
 
 // rendering callbacks
@@ -703,10 +704,11 @@ void drawCube()
 	glEnd();
 }
 
-obj* loadOBJ(char* path)
+obj* loadOBJ(const char* path)
 {
 	int loaded;
-	char line[100];
+	string s_line;
+	const char *line;
 	obj* model;
 	model = (obj*) malloc(sizeof(obj));
 	
@@ -716,23 +718,26 @@ obj* loadOBJ(char* path)
 	model->fCount = 0;
 	model->f3Count = 0;
 	
-	FILE *fp = fopen(path,"r");
+	ifstream fp(path);
 	
-	char mtllibName[32];
-	char mtllibPath[32];
+// 	char mtllibName[32];
+// 	char mtllibPath[32];
 	
 	// inizializzo le stringhe
-	int i;
-	for (i=0; i<32; i++)
-	{
-		mtllibName[i] = '\0';
-		mtllibPath[i] = '\0';
-	}
+// 	int i;
+// 	for (i=0; i<32; i++)
+// 	{
+// 		mtllibName[i] = '\0';
+// 		mtllibPath[i] = '\0';
+// 	}
 	
-	if (fp != NULL)
+	if (fp.is_open())
 	{
-		while (fgets(line, 99, fp))
+		while (!fp.eof())
 		{
+			getline(fp, s_line);
+			line = s_line.c_str();
+			
 			if (line[0] == 'v')
 			{
 				// texture vertex
@@ -805,7 +810,7 @@ obj* loadOBJ(char* path)
 		loaded = 0;
 	}
 	
-	fclose(fp);
+	fp.close();
 	
 	return model;
 }

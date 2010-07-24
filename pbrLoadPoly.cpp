@@ -197,8 +197,8 @@ CheckRender       *g_CheckRender = NULL;
 // kernels
 //#include <simpleGL_kernel.cu>
 
-extern "C" 
-void launch_kernel(float4* pos, unsigned int mesh_width, unsigned int mesh_height, float time);
+// extern "C" void launch_kernel_VBO(float4* pos, unsigned int mesh_width, unsigned int mesh_height, float time);
+extern "C" void launch_kernel(int* input_mesh, int* output_mesh);
 
 ////////////////////////////////////////////////////////////////////////////////
 // declaration, forward
@@ -228,7 +228,8 @@ void checkResultCuda(int argc, char** argv, const GLuint& vbo);
 
 const char *sSDKsample = "simpleGL (VBO)";
 
-obj* mesh = loadOBJ("/Developer/GPU Computing/C/src/pbrLoadPoly/polyModels/cactus.obj");
+obj* h_imesh;
+obj* h_omesh;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Program main
@@ -370,8 +371,14 @@ CUTBoolean runTest(int argc, char** argv)
 		glutMouseFunc(mouse);
 		glutMotionFunc(motion);
 		
+		
 		// create VBO
 		createVBO(&vbo, &cuda_vbo_resource, cudaGraphicsMapFlagsWriteDiscard);
+		
+		// load poly mesh
+ 		h_imesh = loadOBJ("/Developer/GPU Computing/C/src/pbrLoadPoly/polyModels/cactus.obj");
+ 		
+		
 //     }
     
 //     if (g_bQAReadback) {
@@ -425,9 +432,9 @@ void runCuda(struct cudaGraphicsResource **vbo_resource)
     // execute the kernel
     //    dim3 block(8, 8, 1);
     //    dim3 grid(mesh_width / block.x, mesh_height / block.y, 1);
-    //    kernel<<< grid, block>>>(dptr, mesh_width, mesh_height, anim);
+    //    kernel_VBO<<< grid, block>>>(dptr, mesh_width, mesh_height, anim);
 
-    launch_kernel(dptr, mesh_width, mesh_height, anim);
+    // launch_kernel_VBO(dptr, mesh_width, mesh_height, anim);
 
     // unmap buffer object
     // DEPRECATED: cutilSafeCall(cudaGLUnmapBufferObject(vbo));
@@ -440,10 +447,10 @@ void runCuda(struct cudaGraphicsResource **vbo_resource)
 void runAutoTest()
 {
     // execute the kernel
-    launch_kernel((float4 *)d_vbo_buffer, mesh_width, mesh_height, anim);
+    // launch_kernel_VBO((float4 *)d_vbo_buffer, mesh_width, mesh_height, anim);
 
     cutilSafeCall( cudaThreadSynchronize() );
-    cutilCheckMsg("launch_kernel failed");
+    cutilCheckMsg("launch_kernel_VBO failed");
 
     cutilSafeCall( cudaMemcpy( g_CheckRender->imageData(), d_vbo_buffer, mesh_width*mesh_height*sizeof(float), cudaMemcpyDeviceToHost) );
     g_CheckRender->dumpBin((void *)g_CheckRender->imageData(), mesh_width*mesh_height*sizeof(float), "simpleGL.bin");
@@ -521,7 +528,7 @@ void display()
 
 // 	drawCube();
 	
-	drawOBJ(mesh);
+  	drawOBJ(h_imesh);
 	
     glutSwapBuffers();
     glutPostRedisplay();
@@ -595,7 +602,9 @@ void cleanup()
 void keyboard(unsigned char key, int /*x*/, int /*y*/)
 {
     switch(key) {
-    case(27) :
+    case 27 :
+    case 'q' :
+    case 'Q' :
         exit(0);
         break;
     }

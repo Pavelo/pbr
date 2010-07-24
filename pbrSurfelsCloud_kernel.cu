@@ -11,7 +11,7 @@ __global__ void kernel()
 }
 
 // Wrapper for the __global__ call that sets up the kernel call
-extern "C" void launch_kernel(int* input_mesh, int* output_mesh)
+extern "C" void launch_kernel()
 {
     // execute the kernel
     dim3 grid(1, 1, 1);

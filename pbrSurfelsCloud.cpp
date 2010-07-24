@@ -276,7 +276,7 @@ CUTBoolean runTest(int argc, char** argv)
 	glutMotionFunc(motion);
 	
 	// load poly mesh
- 	h_imesh = loadOBJ("/Developer/GPU Computing/C/src/pbrLoadPoly/polyModels/cactus.obj");
+ 	h_imesh = loadOBJ("/Developer/GPU Computing/C/src/pbrSurfelsCloud/polyModels/cactus.obj");
  	
 	
 	

@@ -34,11 +34,11 @@
 ################################################################################
 
 # Add source files here
-EXECUTABLE	     := pbrLoadPoly
+EXECUTABLE	     := pbrSurfelsCloud
 # Cuda source files (compiled with cudacc)
-CUFILES		     := pbrLoadPoly_kernel.cu
+CUFILES		     := pbrSurfelsCloud_kernel.cu
 # C/C++ source files (compiled with gcc / c++)
-CCFILES		     := pbrLoadPoly.cpp
+CCFILES		     := pbrSurfelsCloud.cpp
 
 # Additional compiler flags and LIBs to include
 USEGLLIB             := 1

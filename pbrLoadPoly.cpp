@@ -1,33 +1,3 @@
-/*
- * Copyright 1993-2010 NVIDIA Corporation.  All rights reserved.
- *
- * NVIDIA Corporation and its licensors retain all intellectual property and 
- * proprietary rights in and to this software and related documentation. 
- * Any use, reproduction, disclosure, or distribution of this software 
- * and related documentation without an express license agreement from
- * NVIDIA Corporation is strictly prohibited.
- *
- * Please refer to the applicable NVIDIA end user license agreement (EULA) 
- * associated with this source code for terms and conditions that govern 
- * your use of this NVIDIA software.
- * 
- */
-
-/* 
-    This example demonstrates how to use the Cuda OpenGL bindings to
-    dynamically modify a vertex buffer using a Cuda kernel.
-
-    The steps are:
-    1. Create an empty vertex buffer object (VBO)
-    2. Register the VBO with Cuda
-    3. Map the VBO for writing from Cuda
-    4. Run Cuda kernel to modify the vertex positions
-    5. Unmap the VBO
-    6. Render the results using OpenGL
-
-    Host code
-*/
-
 #ifdef _WIN32
 #  define WINDOWS_LEAN_AND_MEAN
 #  define NOMINMAX
@@ -61,21 +31,6 @@
 #include <rendercheck_gl.h>
 
 using namespace std;
-
-#define MAX_EPSILON_ERROR 10.0f
-#define THRESHOLD		  0.30f
-// Define the files that are to be save and the reference images for validation
-const char *sOriginal[] =
-{
-    "simpleGL.ppm",
-    NULL
-};
-
-const char *sReference[] =
-{
-    "ref_simpleGL.ppm",
-    NULL
-};
 
 ////////////////////////////////////////////////////////////////////////////////
 // data structures
@@ -159,14 +114,6 @@ struct obj
 const unsigned int window_width = 512;
 const unsigned int window_height = 512;
 
-const unsigned int mesh_width = 256;
-const unsigned int mesh_height = 256;
-
-// vbo variables
-GLuint vbo;
-struct cudaGraphicsResource *cuda_vbo_resource;
-void *d_vbo_buffer = NULL;
-
 float anim = 0.0;
 
 // mouse controls
@@ -181,12 +128,8 @@ unsigned int timer = 0;
 const int frameCheckNumber = 4;
 int fpsCount = 0;        // FPS count for averaging
 int fpsLimit = 1;        // FPS limit for sampling
-int g_Index = 0;
 unsigned int frameCount = 0;
-unsigned int g_TotalErrors = 0;
 bool g_Verify = false;
-bool g_bQAReadback = false;
-bool g_bGLVerify   = false;
 
 // CheckFBO/BackBuffer class objects
 CheckRender       *g_CheckRender = NULL;
@@ -195,10 +138,7 @@ CheckRender       *g_CheckRender = NULL;
 
 ////////////////////////////////////////////////////////////////////////////////
 // kernels
-//#include <simpleGL_kernel.cu>
-
-// extern "C" void launch_kernel_VBO(float4* pos, unsigned int mesh_width, unsigned int mesh_height, float time);
-extern "C" void launch_kernel(int* input_mesh, int* output_mesh);
+extern "C" void launch_kernel();
 
 ////////////////////////////////////////////////////////////////////////////////
 // declaration, forward
@@ -207,26 +147,19 @@ void cleanup();
 
 // GL functionality
 CUTBoolean initGL(int argc, char** argv);
-void createVBO(GLuint* vbo, struct cudaGraphicsResource **vbo_res, 
-	       unsigned int vbo_res_flags);
-void deleteVBO(GLuint* vbo, struct cudaGraphicsResource *vbo_res);
 void drawCube();
 obj* loadOBJ(const char* path);
 void drawOBJ(obj* model);
 
 // rendering callbacks
 void display();
-void displayVBO();
 void keyboard(unsigned char key, int x, int y);
 void mouse(int button, int state, int x, int y);
 void motion(int x, int y);
 
 // Cuda functionality
-void runCuda(struct cudaGraphicsResource **vbo_resource);
+void runCuda();
 void runAutoTest();
-void checkResultCuda(int argc, char** argv, const GLuint& vbo);
-
-const char *sSDKsample = "simpleGL (VBO)";
 
 obj* h_imesh;
 obj* h_omesh;
@@ -236,24 +169,6 @@ obj* h_omesh;
 ////////////////////////////////////////////////////////////////////////////////
 int main(int argc, char** argv)
 {
-//     printf("[%s] ", sSDKsample);
-//     
-//     if (argc > 1) {
-//         if (cutCheckCmdLineFlag(argc, (const char **)argv, "qatest") ||
-// 			cutCheckCmdLineFlag(argc, (const char **)argv, "noprompt")) 
-// 	    {
-// 		printf("- (automated test no-OpenGL)\n");
-// 		g_bQAReadback = true;
-// 		//			g_bGLVerify = true;	
-// 		fpsLimit = frameCheckNumber;
-// 	    } else if (cutCheckCmdLineFlag(argc, (const char **)argv, "glverify")) {
-// 	    printf("- (automated test OpenGL rendering)\n");
-// 	    g_bGLVerify = true;	
-//             fpsLimit = frameCheckNumber;
-// 	}
-//     }
-//     printf("\n");
-    
     runTest(argc, argv);
     
     cudaThreadExit();
@@ -281,7 +196,7 @@ void computeFPS()
     if (fpsCount == fpsLimit) {
         char fps[256];
         float ifps = 1.f / (cutGetAverageTimerValue(timer) / 1000.f);
-        sprintf(fps, "%sCuda GL Interop (VBO): %3.1f fps", 
+        sprintf(fps, "%sCuda GL Interop (polygon to cloud): %3.1f fps", 
                 ((g_CheckRender && g_CheckRender->IsQAReadback()) ? "AutoTest: " : ""), ifps);  
 
         glutSetWindowTitle(fps);
@@ -303,7 +218,7 @@ CUTBoolean initGL(int argc, char **argv)
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE);
     glutInitWindowSize(window_width, window_height);
-    glutCreateWindow("Cuda GL Interop (load polygon)");
+    glutCreateWindow("Cuda GL Interop (polygon to cloud)");
     glutDisplayFunc(display);
     glutKeyboardFunc(keyboard);
     glutMotionFunc(motion);
@@ -326,7 +241,7 @@ CUTBoolean initGL(int argc, char **argv)
     // projection
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    gluPerspective(60.0, (GLfloat)window_width / (GLfloat) window_height, 0.1, 10.0);
+    gluPerspective(60.0, (GLfloat) window_width / (GLfloat) window_height, 0.1, 10.0);
 
     CUT_CHECK_ERROR_GL();
 
@@ -341,74 +256,38 @@ CUTBoolean runTest(int argc, char** argv)
 {
     // Create the CUTIL timer
     cutilCheckError( cutCreateTimer( &timer));
-    
-//     if (g_bQAReadback) {
-// 		// use command-line specified CUDA device, otherwise use device with highest Gflops/s
-// 		if( cutCheckCmdLineFlag(argc, (const char**)argv, "device") ) {
-// 			cutilDeviceInit(argc, argv);
-// 		} else {
-// 			cudaSetDevice( cutGetMaxGflopsDeviceId() );
-// 		}
-// 		
-// 		// create VBO
-// 		createVBO(NULL, NULL, 0);
-//     } else {
-		// First initialize OpenGL context, so we can properly set the GL for CUDA.
-		// This is necessary in order to achieve optimal performance with OpenGL/CUDA interop.
-		if (CUTFalse == initGL(argc, argv)) {
-			return CUTFalse;
-		}
-		// use command-line specified CUDA device, otherwise use device with highest Gflops/s
-		if( cutCheckCmdLineFlag(argc, (const char**)argv, "device") ) {
-			cutilGLDeviceInit(argc, argv);
-		} else {
-			cudaGLSetGLDevice( cutGetMaxGflopsDeviceId() );
- 		}
-		
-		// register callbacks
-		glutDisplayFunc(display);
-		glutKeyboardFunc(keyboard);
-		glutMouseFunc(mouse);
-		glutMotionFunc(motion);
-		
-		
-		// create VBO
-		createVBO(&vbo, &cuda_vbo_resource, cudaGraphicsMapFlagsWriteDiscard);
-		
-		// load poly mesh
- 		h_imesh = loadOBJ("/Developer/GPU Computing/C/src/pbrLoadPoly/polyModels/cactus.obj");
- 		
-		
-//     }
-    
-//     if (g_bQAReadback) {
-//         g_CheckRender = new CheckBackBuffer(window_width, window_height, 4, false);
-//         g_CheckRender->setPixelFormat(GL_RGBA);
-//         g_CheckRender->setExecPath(argv[0]);
-//         g_CheckRender->EnableQAReadback(true);
-// 
-// 	runAutoTest();
-//     } else {
-// 	if (g_bGLVerify) {
-// 	    g_CheckRender = new CheckBackBuffer(window_width, window_height, 4);
-// 	    g_CheckRender->setPixelFormat(GL_RGBA);
-// 	    g_CheckRender->setExecPath(argv[0]);
-// 	    g_CheckRender->EnableQAReadback(true);
-// 	}
+
+	// First initialize OpenGL context, so we can properly set the GL for CUDA.
+	// This is necessary in order to achieve optimal performance with OpenGL/CUDA interop.
+	if (CUTFalse == initGL(argc, argv)) {
+		return CUTFalse;
+	}
+	// use command-line specified CUDA device, otherwise use device with highest Gflops/s
+	if( cutCheckCmdLineFlag(argc, (const char**)argv, "device") ) {
+		cutilGLDeviceInit(argc, argv);
+	} else {
+		cudaGLSetGLDevice( cutGetMaxGflopsDeviceId() );
+ 	}
+	
+	// register callbacks
+	glutDisplayFunc(display);
+	glutKeyboardFunc(keyboard);
+	glutMouseFunc(mouse);
+	glutMotionFunc(motion);
+	
+	// load poly mesh
+ 	h_imesh = loadOBJ("/Developer/GPU Computing/C/src/pbrLoadPoly/polyModels/cactus.obj");
+ 	
+	
 	
 	// run the cuda part
-//   	runCuda(&cuda_vbo_resource);
-//     }
-
-    // check result of Cuda step
-    checkResultCuda(argc, argv, vbo);
-
-//     if (!g_bQAReadback) {
+//   	runCuda();
+	
+	// things to do when the program exit
 	atexit(cleanup);
 	
 	// start rendering mainloop
 	glutMainLoop();
-//     }
 
     cudaThreadExit();
 
@@ -418,93 +297,8 @@ CUTBoolean runTest(int argc, char** argv)
 ////////////////////////////////////////////////////////////////////////////////
 //! Run the Cuda part of the computation
 ////////////////////////////////////////////////////////////////////////////////
-void runCuda(struct cudaGraphicsResource **vbo_resource)
+void runCuda()
 {
-    // map OpenGL buffer object for writing from CUDA
-    float4 *dptr;
-    // DEPRECATED: cutilSafeCall(cudaGLMapBufferObject((void**)&dptr, vbo));
-    cutilSafeCall(cudaGraphicsMapResources(1, vbo_resource, 0));
-    size_t num_bytes; 
-    cutilSafeCall(cudaGraphicsResourceGetMappedPointer((void **)&dptr, &num_bytes,  
-						       *vbo_resource));
-    //printf("CUDA mapped VBO: May access %ld bytes\n", num_bytes);
-
-    // execute the kernel
-    //    dim3 block(8, 8, 1);
-    //    dim3 grid(mesh_width / block.x, mesh_height / block.y, 1);
-    //    kernel_VBO<<< grid, block>>>(dptr, mesh_width, mesh_height, anim);
-
-    // launch_kernel_VBO(dptr, mesh_width, mesh_height, anim);
-
-    // unmap buffer object
-    // DEPRECATED: cutilSafeCall(cudaGLUnmapBufferObject(vbo));
-    cutilSafeCall(cudaGraphicsUnmapResources(1, vbo_resource, 0));
-}
-
-////////////////////////////////////////////////////////////////////////////////
-//! Run the Cuda part of the computation
-////////////////////////////////////////////////////////////////////////////////
-void runAutoTest()
-{
-    // execute the kernel
-    // launch_kernel_VBO((float4 *)d_vbo_buffer, mesh_width, mesh_height, anim);
-
-    cutilSafeCall( cudaThreadSynchronize() );
-    cutilCheckMsg("launch_kernel_VBO failed");
-
-    cutilSafeCall( cudaMemcpy( g_CheckRender->imageData(), d_vbo_buffer, mesh_width*mesh_height*sizeof(float), cudaMemcpyDeviceToHost) );
-    g_CheckRender->dumpBin((void *)g_CheckRender->imageData(), mesh_width*mesh_height*sizeof(float), "simpleGL.bin");
-    if (!g_CheckRender->compareBin2BinFloat("simpleGL.bin", "ref_simpleGL.bin", mesh_width*mesh_height*sizeof(float), MAX_EPSILON_ERROR, THRESHOLD))
-       g_TotalErrors++;
-
-    printf("%s\n", (g_TotalErrors > 0) ? "FAILED" : "PASSED");
-}
-
-////////////////////////////////////////////////////////////////////////////////
-//! Create VBO
-////////////////////////////////////////////////////////////////////////////////
-void createVBO(GLuint* vbo, struct cudaGraphicsResource **vbo_res, 
-	       unsigned int vbo_res_flags)
-{
-    if (vbo) {
-	// create buffer object
-	glGenBuffers(1, vbo);
-	glBindBuffer(GL_ARRAY_BUFFER, *vbo);
-	
-	// initialize buffer object
-	unsigned int size = mesh_width * mesh_height * 4 * sizeof(float);
-	glBufferData(GL_ARRAY_BUFFER, size, 0, GL_DYNAMIC_DRAW);
-	
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
-	
-	// register this buffer object with CUDA
-	// DEPRECATED: cutilSafeCall(cudaGLRegisterBufferObject(*vbo));
-	cutilSafeCall(cudaGraphicsGLRegisterBuffer(vbo_res, *vbo, vbo_res_flags));
-	
-	CUT_CHECK_ERROR_GL();
-    } else {
-	cutilSafeCall( cudaMalloc( (void **)&d_vbo_buffer, mesh_width*mesh_height*4*sizeof(float) ) );
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-//! Delete VBO
-////////////////////////////////////////////////////////////////////////////////
-void deleteVBO(GLuint* vbo, struct cudaGraphicsResource *vbo_res)
-{
-    if (vbo) {
-	// unregister this buffer object with CUDA
-	//DEPRECATED: cutilSafeCall(cudaGLUnregisterBufferObject(*pbo));
-	cudaGraphicsUnregisterResource(vbo_res);
-	
-	glBindBuffer(1, *vbo);
-	glDeleteBuffers(1, vbo);
-	
-	*vbo = 0;
-    } else {
-	cudaFree(d_vbo_buffer);
-	d_vbo_buffer = NULL;
-    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -513,9 +307,6 @@ void deleteVBO(GLuint* vbo, struct cudaGraphicsResource *vbo_res)
 void display()
 {
     cutilCheckError(cutStartTimer(timer));  
-
-    // run CUDA kernel to generate vertex positions
-//      runCuda(&cuda_vbo_resource);
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -539,56 +330,9 @@ void display()
     computeFPS();
 }
 
-void displayVBO()
-{
-    cutilCheckError(cutStartTimer(timer));  
-
-    // run CUDA kernel to generate vertex positions
-     runCuda(&cuda_vbo_resource);
-
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-    // set view matrix
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
-    glTranslatef(0.0, 0.0, translate_z);
-    glRotatef(rotate_x, 1.0, 0.0, 0.0);
-    glRotatef(rotate_y, 0.0, 1.0, 0.0);
-
-    // render from the vbo
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glVertexPointer(4, GL_FLOAT, 0, 0);
-
-    glEnableClientState(GL_VERTEX_ARRAY);
-    glColor3f(1.0, 0.0, 0.0);
-    glDrawArrays(GL_POINTS, 0, mesh_width * mesh_height);
-    glDisableClientState(GL_VERTEX_ARRAY);
-
-    if (g_CheckRender && g_CheckRender->IsQAReadback() && g_Verify) {
-        // readback for QA testing
-        printf("> (Frame %d) Readback BackBuffer\n", frameCount);
-        g_CheckRender->readback( window_width, window_height );
-        g_CheckRender->savePPM(sOriginal[g_Index], true, NULL);
-        if (!g_CheckRender->PPMvsPPM(sOriginal[g_Index], sReference[g_Index], MAX_EPSILON_ERROR, 0.15f)) {
-            g_TotalErrors++;
-        }
-        g_Verify = false;
-    }
-
-    glutSwapBuffers();
-    glutPostRedisplay();
-
-    anim += 0.01;
-
-    cutilCheckError(cutStopTimer(timer));  
-    computeFPS();
-}
-
 void cleanup()
 {
     cutilCheckError( cutDeleteTimer( timer));
-
-    deleteVBO(&vbo, cuda_vbo_resource);
 
     if (g_CheckRender) {
         delete g_CheckRender; g_CheckRender = NULL;
@@ -641,41 +385,6 @@ void motion(int x, int y)
 
     mouse_old_x = x;
     mouse_old_y = y;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-//! Check if the result is correct or write data to file for external
-//! regression testing
-////////////////////////////////////////////////////////////////////////////////
-void checkResultCuda(int argc, char** argv, const GLuint& vbo)
-{
-    if (!d_vbo_buffer) {
-	//DEPRECATED: cutilSafeCall(cudaGLUnregisterBufferObject(vbo));
-	cudaGraphicsUnregisterResource(cuda_vbo_resource);
-	
-	// map buffer object
-	glBindBuffer(GL_ARRAY_BUFFER_ARB, vbo );
-	float* data = (float*) glMapBuffer(GL_ARRAY_BUFFER, GL_READ_ONLY);
-	
-	// check result
-	if(cutCheckCmdLineFlag(argc, (const char**) argv, "regression")) {
-	    // write file for regression test
-	    cutilCheckError(cutWriteFilef("./data/regression.dat",
-					  data, mesh_width * mesh_height * 3, 0.0));
-	}
-	
-	// unmap GL buffer object
-	if(! glUnmapBuffer(GL_ARRAY_BUFFER)) {
-	    fprintf(stderr, "Unmap buffer failed.\n");
-	    fflush(stderr);
-	}
-	
-	//DEPRECATED: cutilSafeCall(cudaGLRegisterBufferObject(vbo));
-	cutilSafeCall(cudaGraphicsGLRegisterBuffer(&cuda_vbo_resource, vbo, 
-						   cudaGraphicsMapFlagsWriteDiscard));
-	
-	CUT_CHECK_ERROR_GL();
-    }
 }
 
 void drawCube()

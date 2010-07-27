@@ -138,11 +138,11 @@ CheckRender       *g_CheckRender = NULL;
 
 ////////////////////////////////////////////////////////////////////////////////
 // kernels
-extern "C" void launch_kernel();
+extern "C" void faceArea(int n_faces, int4* face_v_id, float3* vertex, float* face_area, float4* service);
 
 ////////////////////////////////////////////////////////////////////////////////
 // declaration, forward
-CUTBoolean runTest(int argc, char** argv);
+CUTBoolean run(int argc, char** argv);
 void cleanup();
 
 // GL functionality
@@ -169,7 +169,7 @@ obj* h_omesh;
 ////////////////////////////////////////////////////////////////////////////////
 int main(int argc, char** argv)
 {
-    runTest(argc, argv);
+    run(argc, argv);
     
     cudaThreadExit();
     
@@ -252,7 +252,7 @@ CUTBoolean initGL(int argc, char **argv)
 ////////////////////////////////////////////////////////////////////////////////
 //! Run a simple test for CUDA
 ////////////////////////////////////////////////////////////////////////////////
-CUTBoolean runTest(int argc, char** argv)
+CUTBoolean run(int argc, char** argv)
 {
     // Create the CUTIL timer
     cutilCheckError( cutCreateTimer( &timer));
@@ -276,12 +276,11 @@ CUTBoolean runTest(int argc, char** argv)
 	glutMotionFunc(motion);
 	
 	// load poly mesh
- 	h_imesh = loadOBJ("/Developer/GPU Computing/C/src/pbrSurfelsCloud/polyModels/cactus.obj");
+ 	h_imesh = loadOBJ("/Developer/GPU Computing/C/src/pbrSurfelsCloud/polyModels/dice.obj");
  	
 	
-	
 	// run the cuda part
-//   	runCuda();
+   	runCuda();
 	
 	// things to do when the program exit
 	atexit(cleanup);
@@ -299,6 +298,67 @@ CUTBoolean runTest(int argc, char** argv)
 ////////////////////////////////////////////////////////////////////////////////
 void runCuda()
 {
+	unsigned int mem_size;
+	
+	// allocate memory and copy vertexes on device
+	mem_size = h_imesh->vCount * sizeof(float3);
+	
+	float3* d_ivertex;
+	cutilSafeCall( cudaMalloc( (void**) &d_ivertex, mem_size));
+	cutilSafeCall( cudaMemcpy( d_ivertex, h_imesh->v, mem_size, cudaMemcpyHostToDevice));
+	
+//	float3* h_overtex = (float3*) malloc(mem_size);
+//	cutilSafeCall( cudaMemcpy( h_overtex, d_ivertex, mem_size, cudaMemcpyDeviceToHost));
+	
+	// allocate memory and copy faces on device
+	mem_size = h_imesh->fCount * sizeof(int4);
+	
+	int4* h_iface = (int4*) malloc(mem_size);
+	for (int i=0; i<h_imesh->fCount; i++) {
+		h_iface[i].x = h_imesh->f[i].v1;
+		h_iface[i].y = h_imesh->f[i].v2;
+		h_iface[i].z = h_imesh->f[i].v3;
+		h_iface[i].w = h_imesh->f[i].v4;
+	}
+	
+	int4* d_iface;
+	cutilSafeCall( cudaMalloc( (void**) &d_iface, mem_size));
+	cutilSafeCall( cudaMemcpy( d_iface, h_iface, mem_size, cudaMemcpyHostToDevice));
+	
+	float* d_ofaceArea;
+	mem_size = h_imesh->fCount * sizeof(float);
+	cutilSafeCall( cudaMalloc( (void**) &d_ofaceArea, mem_size));
+
+//	for (int i = 0; i < h_imesh->fCount; i++) {
+//		cout << h_oface[i].v1 << "/" << h_oface[i].t1 << "/" << h_oface[i].n1 << "\t";
+//		cout << h_oface[i].v2 << "/" << h_oface[i].t2 << "/" << h_oface[i].n2 << "\t";
+//		cout << h_oface[i].v3 << "/" << h_oface[i].t3 << "/" << h_oface[i].n3 << "\t";
+//		cout << h_oface[i].v4 << "/" << h_oface[i].t4 << "/" << h_oface[i].n4 << endl;
+//	}
+	
+	float4* d_serv;
+	cutilSafeCall( cudaMalloc( (void**) &d_serv, h_imesh->fCount*sizeof(float4)));
+	
+	faceArea( h_imesh->fCount, d_iface, d_ivertex, d_ofaceArea, d_serv);
+	
+	float4* h_serv = (float4*) malloc(h_imesh->fCount*sizeof(float4));
+	cutilSafeCall( cudaMemcpy( h_serv, d_serv, h_imesh->fCount*sizeof(float4), cudaMemcpyDeviceToHost));
+	
+	for (int i=0; i<h_imesh->fCount; i++) {
+		cout << h_serv[i].x << "\t" << h_serv[i].y << "\t" << h_serv[i].z << "\t" << h_serv[i].w << endl;
+	}
+	
+	float* h_ofaceArea = (float*) malloc(mem_size);
+	
+	// free memory
+	cutilSafeCall( cudaFree( d_ivertex));
+	cutilSafeCall( cudaFree( d_iface));
+	cutilSafeCall( cudaFree( d_ofaceArea));
+	cutilSafeCall( cudaFree( d_serv));
+	free( h_iface);
+//	free( h_overtex);
+	free( h_serv);
+	free( h_ofaceArea);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -36,15 +36,24 @@ __global__ void faceArea_kernel(int4* face_v_id, float3* vertex, float* face_are
 
 	// complete formula
 	// TODO: trasformare in variabile accessibile solo dal singolo thread o in shared mem
-//	__shared__ float4 edge_length[ BLOCK_SIZE ];
-//	edge_length[tid].x = sqrtf( a_comp.x*a_comp.x + a_comp.y*a_comp.y + a_comp.z*a_comp.z );
-//	edge_length[tid].y = sqrtf( b_comp.x*b_comp.x + b_comp.y*b_comp.y + b_comp.z*b_comp.z );
-//	edge_length[tid].z = sqrtf( c_comp.x*c_comp.x + c_comp.y*c_comp.y + c_comp.z*c_comp.z );
-//	edge_length[tid].w = sqrtf( d_comp.x*d_comp.x + d_comp.y*d_comp.y + d_comp.z*d_comp.z );
-	service[tid].x = sqrtf( a_comp.x*a_comp.x + a_comp.y*a_comp.y + a_comp.z*a_comp.z );
-	service[tid].y = sqrtf( b_comp.x*b_comp.x + b_comp.y*b_comp.y + b_comp.z*b_comp.z );
-	service[tid].z = sqrtf( c_comp.x*c_comp.x + c_comp.y*c_comp.y + c_comp.z*c_comp.z );
-	service[tid].w = sqrtf( d_comp.x*d_comp.x + d_comp.y*d_comp.y + d_comp.z*d_comp.z );
+	float4 edge_length;
+	edge_length.x = sqrtf( a_comp.x*a_comp.x + a_comp.y*a_comp.y + a_comp.z*a_comp.z );
+	edge_length.y = sqrtf( b_comp.x*b_comp.x + b_comp.y*b_comp.y + b_comp.z*b_comp.z );
+	edge_length.z = sqrtf( c_comp.x*c_comp.x + c_comp.y*c_comp.y + c_comp.z*c_comp.z );
+	edge_length.w = sqrtf( d_comp.x*d_comp.x + d_comp.y*d_comp.y + d_comp.z*d_comp.z );
+	service[tid].x = edge_length.x;
+	service[tid].y = edge_length.y;
+	service[tid].z = edge_length.z;
+	service[tid].w = edge_length.w;
+	
+	// length of one diagonal per face
+	float3 diag_comp = {
+		vertex[ face_v_id[tid].x-1 ].x - vertex[ face_v_id[tid].z-1 ].x ,
+		vertex[ face_v_id[tid].x-1 ].y - vertex[ face_v_id[tid].z-1 ].y ,
+		vertex[ face_v_id[tid].x-1 ].z - vertex[ face_v_id[tid].z-1 ].z };
+	float diag_length = sqrtf( diag_comp.x*diag_comp.x + diag_comp.y*diag_comp.y + diag_comp.z*diag_comp.z );
+	
+	//service[tid].w = diag_length;
 }
 
 // Wrapper for the __global__ call that sets up the kernel call

@@ -11,6 +11,7 @@
 #include <fstream>
 #include <string>
 #include <math.h>
+#include <vector>
 
 // includes, GL
 #include <GL/glew.h>
@@ -67,25 +68,6 @@ struct Face
 	int v3;
 	int t3;
 	int n3;
-	
-	int v4;
-	int t4;
-	int n4;
-};
-
-struct Face3
-{
-	int v1;
-	int t1;
-	int n1;
-	
-	int v2;
-	int t2;
-	int n2;
-	
-	int v3;
-	int t3;
-	int n3;
 };
 
 struct obj
@@ -94,10 +76,8 @@ struct obj
 	VTexture vt[50000];
 	VNormal vn[50000];
 	Face f[50000];
-	Face3 f3[50000];
 	int vCount;
 	int fCount;
-	int f3Count;
 	
 	float ambient[3];
 	float diffuse[3];
@@ -276,11 +256,11 @@ CUTBoolean run(int argc, char** argv)
 	glutMotionFunc(motion);
 	
 	// load poly mesh
- 	h_imesh = loadOBJ("/Developer/GPU Computing/C/src/pbrSurfelsCloud/polyModels/dice.obj");
+ 	h_imesh = loadOBJ("/Developer/GPU Computing/C/src/pbrSurfelsCloud/polyModels/cactus.obj");
  	
 	
 	// run the cuda part
-   	runCuda();
+//   	runCuda();
 	
 	// things to do when the program exit
 	atexit(cleanup);
@@ -311,17 +291,16 @@ void runCuda()
 //	cutilSafeCall( cudaMemcpy( h_overtex, d_ivertex, mem_size, cudaMemcpyDeviceToHost));
 	
 	// allocate memory and copy faces on device
-	mem_size = h_imesh->fCount * sizeof(int4);
+	mem_size = h_imesh->fCount * sizeof(int3);
 	
-	int4* h_iface = (int4*) malloc(mem_size);
+	int3* h_iface = (int3*) malloc(mem_size);
 	for (int i=0; i<h_imesh->fCount; i++) {
 		h_iface[i].x = h_imesh->f[i].v1;
 		h_iface[i].y = h_imesh->f[i].v2;
 		h_iface[i].z = h_imesh->f[i].v3;
-		h_iface[i].w = h_imesh->f[i].v4;
 	}
 	
-	int4* d_iface;
+	int3* d_iface;
 	cutilSafeCall( cudaMalloc( (void**) &d_iface, mem_size));
 	cutilSafeCall( cudaMemcpy( d_iface, h_iface, mem_size, cudaMemcpyHostToDevice));
 	
@@ -333,13 +312,12 @@ void runCuda()
 //		cout << h_oface[i].v1 << "/" << h_oface[i].t1 << "/" << h_oface[i].n1 << "\t";
 //		cout << h_oface[i].v2 << "/" << h_oface[i].t2 << "/" << h_oface[i].n2 << "\t";
 //		cout << h_oface[i].v3 << "/" << h_oface[i].t3 << "/" << h_oface[i].n3 << "\t";
-//		cout << h_oface[i].v4 << "/" << h_oface[i].t4 << "/" << h_oface[i].n4 << endl;
 //	}
 	
 	float4* d_serv;
 	cutilSafeCall( cudaMalloc( (void**) &d_serv, h_imesh->fCount*sizeof(float4)));
 	
-	faceArea( h_imesh->fCount, d_iface, d_ivertex, d_ofaceArea, d_serv);
+//	faceArea( h_imesh->fCount, d_iface, d_ivertex, d_ofaceArea, d_serv);
 	
 	float4* h_serv = (float4*) malloc(h_imesh->fCount*sizeof(float4));
 	cutilSafeCall( cudaMemcpy( h_serv, d_serv, h_imesh->fCount*sizeof(float4), cudaMemcpyDeviceToHost));
@@ -494,7 +472,13 @@ obj* loadOBJ(const char* path)
 	int vtCount = 0;
 	int vnCount = 0;
 	model->fCount = 0;
-	model->f3Count = 0;
+	
+	vector<string> vtn;
+	vector<int> vtn_parsed;
+	string vtn_element;
+	unsigned int pos;
+	unsigned int beg;
+	unsigned int end;
 	
 	ifstream fp(path);
 	
@@ -538,33 +522,51 @@ obj* loadOBJ(const char* path)
 				}
 			}
 			// face
-			else if (line[0] == 'f')
+			else if (s_line[0] == 'f')
 			{
-				int n = 0;
-				int spaceCount = 0;
-				while (line[n] != '\0')
+				pos = s_line.find(" ") + 1;
+				
+				while (pos < s_line.length())
 				{
-					if (line[n]==' ')
-						spaceCount++;
-					n++;
+					vtn_element.clear();
+					while (s_line[pos] != ' ' && pos < s_line.length())
+					{
+						vtn_element.push_back(s_line[pos]);
+						pos++;
+					}
+					vtn.push_back(vtn_element);
+					pos++;
 				}
-				if (spaceCount == 3)
+				
+				for (unsigned int i=0; i < vtn.size(); i++)
 				{
-					sscanf(line, "%*c %d/%d/%d %d/%d/%d %d/%d/%d",
-						   &model->f3[model->f3Count].v1, &model->f3[model->f3Count].t1, &model->f3[model->f3Count].n1,
-						   &model->f3[model->f3Count].v2, &model->f3[model->f3Count].t2, &model->f3[model->f3Count].n2,
-						   &model->f3[model->f3Count].v3, &model->f3[model->f3Count].t3, &model->f3[model->f3Count].n3);
-					model->f3Count++;
+					vtn_element = vtn.at(i);
+					beg = end = 0;
+					while (end < vtn_element.size()) {
+						end = vtn_element.find("/", beg);
+						vtn_parsed.push_back( atoi( vtn_element.substr(beg, end-beg).c_str()));
+						beg = end+1;
+					}
 				}
-				else if (spaceCount == 4)
-				{
-					sscanf(line, "%*c %d/%d/%d %d/%d/%d %d/%d/%d %d/%d/%d",
-						   &model->f[model->fCount].v1, &model->f[model->fCount].t1, &model->f[model->fCount].n1,
-						   &model->f[model->fCount].v2, &model->f[model->fCount].t2, &model->f[model->fCount].n2,
-						   &model->f[model->fCount].v3, &model->f[model->fCount].t3, &model->f[model->fCount].n3,
-						   &model->f[model->fCount].v4, &model->f[model->fCount].t4, &model->f[model->fCount].n4);
+				
+				for (unsigned int i=2; i < vtn.size(); i++) {
+					model->f[model->fCount].v1 = vtn_parsed.at(0);	// primo vertice, rimane fisso
+					model->f[model->fCount].v2 = vtn_parsed.at( 3*(i-1) );
+					model->f[model->fCount].v3 = vtn_parsed.at( 3*i );
+					
+					model->f[model->fCount].t1 = vtn_parsed.at(1);	// primo vertice texture, rimane fisso
+					model->f[model->fCount].t2 = vtn_parsed.at( 3*(i-1) +1 );
+					model->f[model->fCount].t3 = vtn_parsed.at( 3*i +1 );
+					
+					model->f[model->fCount].n1 = vtn_parsed.at(2);	// primo vertice normale, rimane fisso
+					model->f[model->fCount].n2 = vtn_parsed.at( 3*(i-1) +2 );
+					model->f[model->fCount].n3 = vtn_parsed.at( 3*i +2 );
+					
 					model->fCount++;
 				}
+								
+				vtn_parsed.clear();
+				vtn.clear();
 			}
 // 			else if (strstr(line, "mtllib") != NULL)
 // 			{
@@ -603,10 +605,9 @@ void drawOBJ(obj* model)
 	glEnable(GL_TEXTURE_2D);
 	glBindTexture(GL_TEXTURE_2D, model->textureId);
 	
-	glBegin(GL_QUADS);
+	glBegin(GL_TRIANGLES);
 	
-	int i;
-	for (i=0; i<model->fCount; i++)
+	for (int i=0; i<model->fCount; i++)
 	{
 		glNormal3f(model->vn[model->f[i].n1-1].x, model->vn[model->f[i].n1-1].y, model->vn[model->f[i].n1-1].z);
 		glTexCoord2f(model->vt[model->f[i].t1-1].u, model->vt[model->f[i].t1-1].v);
@@ -620,28 +621,10 @@ void drawOBJ(obj* model)
 		glTexCoord2f(model->vt[model->f[i].t3-1].u, model->vt[model->f[i].t3-1].v);
 		glVertex3f(model->v[model->f[i].v3-1].x, model->v[model->f[i].v3-1].y, model->v[model->f[i].v3-1].z);
 		
-		glNormal3f(model->vn[model->f[i].n4-1].x, model->vn[model->f[i].n4-1].y, model->vn[model->f[i].n4-1].z);
-		glTexCoord2f(model->vt[model->f[i].t4-1].u, model->vt[model->f[i].t4-1].v);
-		glVertex3f(model->v[model->f[i].v4-1].x, model->v[model->f[i].v4-1].y, model->v[model->f[i].v4-1].z);
-	}
-	
-	glEnd();
-	
-	glBegin(GL_TRIANGLES);
-	
-	for (i=0; i<model->f3Count; i++)
-	{
-		glNormal3f(model->vn[model->f3[i].n1-1].x, model->vn[model->f3[i].n1-1].y, model->vn[model->f3[i].n1-1].z);
-		glTexCoord2f(model->vt[model->f3[i].t1-1].u, model->vt[model->f3[i].t1-1].v);
-		glVertex3f(model->v[model->f3[i].v1-1].x, model->v[model->f3[i].v1-1].y, model->v[model->f3[i].v1-1].z);
-		
-		glNormal3f(model->vn[model->f3[i].n2-1].x, model->vn[model->f3[i].n2-1].y, model->vn[model->f3[i].n2-1].z);
-		glTexCoord2f(model->vt[model->f3[i].t2-1].u, model->vt[model->f3[i].t2-1].v);
-		glVertex3f(model->v[model->f3[i].v2-1].x, model->v[model->f3[i].v2-1].y, model->v[model->f3[i].v2-1].z);
-		
-		glNormal3f(model->vn[model->f3[i].n3-1].x, model->vn[model->f3[i].n3-1].y, model->vn[model->f3[i].n3-1].z);
-		glTexCoord2f(model->vt[model->f3[i].t3-1].u, model->vt[model->f3[i].t3-1].v);
-		glVertex3f(model->v[model->f3[i].v3-1].x, model->v[model->f3[i].v3-1].y, model->v[model->f3[i].v3-1].z);
+//			printf("f %d/%d/%d %d/%d/%d %d/%d/%d\n"
+//				   , model->f[i].v1, model->f[i].t1, model->f[i].n1
+//				   , model->f[i].v2, model->f[i].t2, model->f[i].n2
+//				   , model->f[i].v3, model->f[i].t3, model->f[i].n3);
 	}
 	
 	glEnd();

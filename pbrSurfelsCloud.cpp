@@ -37,44 +37,34 @@ using namespace std;
 // data structures
 struct Vertex
 {
-	float x;
-	float y;
-	float z;
+	float3 pos;
 };
 
-struct VTexture
-{
-	float u;
-	float v;
-};
-
-struct VNormal
-{
-	float x;
-	float y;
-	float z;
-};
+//struct VTexture
+//{
+//	float u;
+//	float v;
+//};
+//
+//struct VNormal
+//{
+//	float x;
+//	float y;
+//	float z;
+//};
 
 struct Face
 {
-	int v1;
-	int t1;
-	int n1;
-	
-	int v2;
-	int t2;
-	int n2;
-	
-	int v3;
-	int t3;
-	int n3;
+	uint3 v;
+	uint3 t;
+	uint3 n;
 };
 
-struct obj
+struct Solid
 {
 	vector<Vertex> v;
-	vector<VTexture> vt;
-	vector<VNormal> vn;
+	vector<float2> vt;
+	vector<float3> vn;
 	vector<Face> f;
 	
 	float ambient[3];
@@ -126,8 +116,8 @@ void cleanup();
 // GL functionality
 CUTBoolean initGL(int argc, char** argv);
 void drawCube();
-obj loadOBJ(const char* path);
-void drawOBJ(obj model);
+Solid loadOBJ(const char* path);
+void drawSolid(Solid model);
 
 // rendering callbacks
 void display();
@@ -139,8 +129,10 @@ void motion(int x, int y);
 void runCuda();
 void runAutoTest();
 
-obj h_imesh;
-obj h_omesh;
+Solid h_imesh;
+Solid h_omesh;
+
+int counter=0;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Program main
@@ -293,9 +285,9 @@ void runCuda()
 	
 	int3* h_iface = (int3*) malloc(mem_size);
 	for (unsigned int i=0; i<h_imesh.f.size(); i++) {
-		h_iface[i].x = h_imesh.f[i].v1;
-		h_iface[i].y = h_imesh.f[i].v2;
-		h_iface[i].z = h_imesh.f[i].v3;
+		h_iface[i].x = h_imesh.f[i].v.x;
+		h_iface[i].y = h_imesh.f[i].v.y;
+		h_iface[i].z = h_imesh.f[i].v.z;
 	}
 	
 	int3* d_iface;
@@ -307,9 +299,9 @@ void runCuda()
 	cutilSafeCall( cudaMalloc( (void**) &d_ofaceArea, mem_size));
 
 //	for (int i = 0; i < h_imesh.f.size(); i++) {
-//		cout << h_oface[i].v1 << "/" << h_oface[i].t1 << "/" << h_oface[i].n1 << "\t";
-//		cout << h_oface[i].v2 << "/" << h_oface[i].t2 << "/" << h_oface[i].n2 << "\t";
-//		cout << h_oface[i].v3 << "/" << h_oface[i].t3 << "/" << h_oface[i].n3 << "\t";
+//		cout << h_oface[i].v.x << "/" << h_oface[i].t.x << "/" << h_oface[i].n.x << "\t";
+//		cout << h_oface[i].v.y << "/" << h_oface[i].t.y << "/" << h_oface[i].n.y << "\t";
+//		cout << h_oface[i].v.z << "/" << h_oface[i].t.z << "/" << h_oface[i].n.z << "\t";
 //	}
 	
 	float4* d_serv;
@@ -355,7 +347,7 @@ void display()
 
 // 	drawCube();
 	
-  	drawOBJ(h_imesh);
+  	drawSolid(h_imesh);
 	
     glutSwapBuffers();
     glutPostRedisplay();
@@ -458,13 +450,13 @@ void drawCube()
 	glEnd();
 }
 
-obj loadOBJ(const char* path)
+Solid loadOBJ(const char* path)
 {
 	int loaded;
 	string s_line;
 	const char *line;
-	obj model;
-//	model = (obj*) malloc(sizeof(obj));
+	Solid model;
+//	model = (Solid*) malloc(sizeof(Solid));
 	
 	vector<string> vtn;
 	vector<int> vtn_parsed;
@@ -474,8 +466,8 @@ obj loadOBJ(const char* path)
 	unsigned int end;
 	
 	Vertex v_tmp;
-	VTexture vt_tmp;
-	VNormal vn_tmp;
+	float2 vt_tmp;
+	float3 vn_tmp;
 	Face f_tmp;
 	
 	ifstream fp(path);
@@ -503,7 +495,7 @@ obj loadOBJ(const char* path)
 				// texture vertex
 				if (line[1] == 't')
 				{
-					sscanf(line, "%*c%*c %f %f", &vt_tmp.u, &vt_tmp.v);
+					sscanf(line, "%*c%*c %f %f", &vt_tmp.x, &vt_tmp.y);
 					model.vt.push_back(vt_tmp);
 				}
 				// normal vertex
@@ -515,7 +507,7 @@ obj loadOBJ(const char* path)
 				// vertex
 				else
 				{
-					sscanf(line, "%*c %f %f %f", &v_tmp.x, &v_tmp.y, &v_tmp.z);
+					sscanf(line, "%*c %f %f %f", &v_tmp.pos.x, &v_tmp.pos.y, &v_tmp.pos.z);
 					model.v.push_back(v_tmp);
 				}
 			}
@@ -549,17 +541,17 @@ obj loadOBJ(const char* path)
 				
 				// lettura degli indici per la triangolarizzazione
 				for (unsigned int i=2; i < vtn.size(); i++) {
-					f_tmp.v1 = vtn_parsed[ 0 ];	// primo vertice, rimane fisso
-					f_tmp.v2 = vtn_parsed[ 3*(i-1) ];
-					f_tmp.v3 = vtn_parsed[ 3*i ];
+					f_tmp.v.x = vtn_parsed[ 0 ];	// primo vertice, rimane fisso
+					f_tmp.v.y = vtn_parsed[ 3*(i-1) ];
+					f_tmp.v.z = vtn_parsed[ 3*i ];
 					
-					f_tmp.t1 = vtn_parsed[ 1 ];	// primo vertice texture, rimane fisso
-					f_tmp.t2 = vtn_parsed[ 3*(i-1) +1 ];
-					f_tmp.t3 = vtn_parsed[ 3*i +1 ];
+					f_tmp.t.x = vtn_parsed[ 1 ];	// primo vertice texture, rimane fisso
+					f_tmp.t.y = vtn_parsed[ 3*(i-1) +1 ];
+					f_tmp.t.z = vtn_parsed[ 3*i +1 ];
 					
-					f_tmp.n1 = vtn_parsed[ 2 ];	// primo vertice normale, rimane fisso
-					f_tmp.n2 = vtn_parsed[ 3*(i-1) +2 ];
-					f_tmp.n3 = vtn_parsed[ 3*i +2 ];
+					f_tmp.n.x = vtn_parsed[ 2 ];	// primo vertice normale, rimane fisso
+					f_tmp.n.y = vtn_parsed[ 3*(i-1) +2 ];
+					f_tmp.n.z = vtn_parsed[ 3*i +2 ];
 					
 					model.f.push_back(f_tmp);
 				}
@@ -594,7 +586,7 @@ obj loadOBJ(const char* path)
 	return model;
 }
 
-void drawOBJ(obj model)
+void drawSolid(Solid model)
 {
 	glMaterialfv(GL_FRONT, GL_AMBIENT, model.ambient);
 	glMaterialfv(GL_FRONT, GL_DIFFUSE, model.diffuse);
@@ -608,23 +600,26 @@ void drawOBJ(obj model)
 	
 	for (unsigned int i=0; i < model.f.size(); i++)
 	{
-		glNormal3f(model.vn[model.f[i].n1-1].x, model.vn[model.f[i].n1-1].y, model.vn[model.f[i].n1-1].z);
-		glTexCoord2f(model.vt[model.f[i].t1-1].u, model.vt[model.f[i].t1-1].v);
-		glVertex3f(model.v[model.f[i].v1-1].x, model.v[model.f[i].v1-1].y, model.v[model.f[i].v1-1].z);
+		glNormal3f(model.vn[model.f[i].n.x-1].x, model.vn[model.f[i].n.x-1].y, model.vn[model.f[i].n.x-1].z);
+		glTexCoord2f(model.vt[model.f[i].t.x-1].x, model.vt[model.f[i].t.x-1].y);
+		glVertex3f(model.v[model.f[i].v.x-1].pos.x, model.v[model.f[i].v.x-1].pos.y, model.v[model.f[i].v.x-1].pos.z);
 		
-		glNormal3f(model.vn[model.f[i].n2-1].x, model.vn[model.f[i].n2-1].y, model.vn[model.f[i].n2-1].z);
-		glTexCoord2f(model.vt[model.f[i].t2-1].u, model.vt[model.f[i].t2-1].v);
-		glVertex3f(model.v[model.f[i].v2-1].x, model.v[model.f[i].v2-1].y, model.v[model.f[i].v2-1].z);
+		glNormal3f(model.vn[model.f[i].n.y-1].x, model.vn[model.f[i].n.y-1].y, model.vn[model.f[i].n.y-1].z);
+		glTexCoord2f(model.vt[model.f[i].t.y-1].x, model.vt[model.f[i].t.y-1].y);
+		glVertex3f(model.v[model.f[i].v.y-1].pos.x, model.v[model.f[i].v.y-1].pos.y, model.v[model.f[i].v.y-1].pos.z);
 		
-		glNormal3f(model.vn[model.f[i].n3-1].x, model.vn[model.f[i].n3-1].y, model.vn[model.f[i].n3-1].z);
-		glTexCoord2f(model.vt[model.f[i].t3-1].u, model.vt[model.f[i].t3-1].v);
-		glVertex3f(model.v[model.f[i].v3-1].x, model.v[model.f[i].v3-1].y, model.v[model.f[i].v3-1].z);
+		glNormal3f(model.vn[model.f[i].n.z-1].x, model.vn[model.f[i].n.z-1].y, model.vn[model.f[i].n.z-1].z);
+		glTexCoord2f(model.vt[model.f[i].t.z-1].x, model.vt[model.f[i].t.z-1].y);
+		glVertex3f(model.v[model.f[i].v.z-1].pos.x, model.v[model.f[i].v.z-1].pos.y, model.v[model.f[i].v.z-1].pos.z);
 		
-//			printf("f %d/%d/%d %d/%d/%d %d/%d/%d\n"
-//				   , model.f[i].v1, model.f[i].t1, model.f[i].n1
-//				   , model.f[i].v2, model.f[i].t2, model.f[i].n2
-//				   , model.f[i].v3, model.f[i].t3, model.f[i].n3);
+		if (counter == 1)
+			printf("f %d/%d/%f %d/%d/%f %d/%d/%f\n"
+				   , model.f[i].v.x, model.f[i].t.x, model.vn[model.f[i].n.x].x
+				   , model.f[i].v.y, model.f[i].t.y, model.vn[model.f[i].n.y].y
+				   , model.f[i].v.z, model.f[i].t.z, model.vn[model.f[i].n.z].z);
 	}
+	
+	counter++;
 	
 	glEnd();
 	

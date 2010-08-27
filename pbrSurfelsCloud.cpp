@@ -538,7 +538,7 @@ obj loadOBJ(const char* path)
 				
 				for (unsigned int i=0; i < vtn.size(); i++)
 				{
-					vtn_element = vtn.at(i);
+					vtn_element = vtn[i];
 					beg = end = 0;
 					while (end < vtn_element.size()) {
 						end = vtn_element.find("/", beg);
@@ -547,18 +547,19 @@ obj loadOBJ(const char* path)
 					}
 				}
 				
+				// lettura degli indici per la triangolarizzazione
 				for (unsigned int i=2; i < vtn.size(); i++) {
-					f_tmp.v1 = vtn_parsed.at( 0 );	// primo vertice, rimane fisso
-					f_tmp.v2 = vtn_parsed.at( 3*(i-1) );
-					f_tmp.v3 = vtn_parsed.at( 3*i );
+					f_tmp.v1 = vtn_parsed[ 0 ];	// primo vertice, rimane fisso
+					f_tmp.v2 = vtn_parsed[ 3*(i-1) ];
+					f_tmp.v3 = vtn_parsed[ 3*i ];
 					
-					f_tmp.t1 = vtn_parsed.at( 1 );	// primo vertice texture, rimane fisso
-					f_tmp.t2 = vtn_parsed.at( 3*(i-1) +1 );
-					f_tmp.t3 = vtn_parsed.at( 3*i +1 );
+					f_tmp.t1 = vtn_parsed[ 1 ];	// primo vertice texture, rimane fisso
+					f_tmp.t2 = vtn_parsed[ 3*(i-1) +1 ];
+					f_tmp.t3 = vtn_parsed[ 3*i +1 ];
 					
-					f_tmp.n1 = vtn_parsed.at( 2 );	// primo vertice normale, rimane fisso
-					f_tmp.n2 = vtn_parsed.at( 3*(i-1) +2 );
-					f_tmp.n3 = vtn_parsed.at( 3*i +2 );
+					f_tmp.n1 = vtn_parsed[ 2 ];	// primo vertice normale, rimane fisso
+					f_tmp.n2 = vtn_parsed[ 3*(i-1) +2 ];
+					f_tmp.n3 = vtn_parsed[ 3*i +2 ];
 					
 					model.f.push_back(f_tmp);
 				}
@@ -607,22 +608,22 @@ void drawOBJ(obj model)
 	
 	for (unsigned int i=0; i < model.f.size(); i++)
 	{
-		glNormal3f(model.vn.at(model.f.at(i).n1-1).x, model.vn.at(model.f.at(i).n1-1).y, model.vn.at(model.f.at(i).n1-1).z);
-		glTexCoord2f(model.vt.at(model.f.at(i).t1-1).u, model.vt.at(model.f.at(i).t1-1).v);
-		glVertex3f(model.v.at(model.f.at(i).v1-1).x, model.v.at(model.f.at(i).v1-1).y, model.v.at(model.f.at(i).v1-1).z);
+		glNormal3f(model.vn[model.f[i].n1-1].x, model.vn[model.f[i].n1-1].y, model.vn[model.f[i].n1-1].z);
+		glTexCoord2f(model.vt[model.f[i].t1-1].u, model.vt[model.f[i].t1-1].v);
+		glVertex3f(model.v[model.f[i].v1-1].x, model.v[model.f[i].v1-1].y, model.v[model.f[i].v1-1].z);
 		
-		glNormal3f(model.vn.at(model.f.at(i).n2-1).x, model.vn.at(model.f.at(i).n2-1).y, model.vn.at(model.f.at(i).n2-1).z);
-		glTexCoord2f(model.vt.at(model.f.at(i).t2-1).u, model.vt.at(model.f.at(i).t2-1).v);
-		glVertex3f(model.v.at(model.f.at(i).v2-1).x, model.v.at(model.f.at(i).v2-1).y, model.v.at(model.f.at(i).v2-1).z);
+		glNormal3f(model.vn[model.f[i].n2-1].x, model.vn[model.f[i].n2-1].y, model.vn[model.f[i].n2-1].z);
+		glTexCoord2f(model.vt[model.f[i].t2-1].u, model.vt[model.f[i].t2-1].v);
+		glVertex3f(model.v[model.f[i].v2-1].x, model.v[model.f[i].v2-1].y, model.v[model.f[i].v2-1].z);
 		
-		glNormal3f(model.vn.at(model.f.at(i).n3-1).x, model.vn.at(model.f.at(i).n3-1).y, model.vn.at(model.f.at(i).n3-1).z);
-		glTexCoord2f(model.vt.at(model.f.at(i).t3-1).u, model.vt.at(model.f.at(i).t3-1).v);
-		glVertex3f(model.v.at(model.f.at(i).v3-1).x, model.v.at(model.f.at(i).v3-1).y, model.v.at(model.f.at(i).v3-1).z);
+		glNormal3f(model.vn[model.f[i].n3-1].x, model.vn[model.f[i].n3-1].y, model.vn[model.f[i].n3-1].z);
+		glTexCoord2f(model.vt[model.f[i].t3-1].u, model.vt[model.f[i].t3-1].v);
+		glVertex3f(model.v[model.f[i].v3-1].x, model.v[model.f[i].v3-1].y, model.v[model.f[i].v3-1].z);
 		
 //			printf("f %d/%d/%d %d/%d/%d %d/%d/%d\n"
-//				   , model.f.at(i).v1, model.f.at(i).t1, model.f.at(i).n1
-//				   , model.f.at(i).v2, model.f.at(i).t2, model.f.at(i).n2
-//				   , model.f.at(i).v3, model.f.at(i).t3, model.f.at(i).n3);
+//				   , model.f[i].v1, model.f[i].t1, model.f[i].n1
+//				   , model.f[i].v2, model.f[i].t2, model.f[i].n2
+//				   , model.f[i].v3, model.f[i].t3, model.f[i].n3);
 	}
 	
 	glEnd();

@@ -35,37 +35,40 @@ using namespace std;
 
 ////////////////////////////////////////////////////////////////////////////////
 // data structures
-struct Vertex
+typedef struct _Vertex    Vertex;
+typedef struct _Halfedge  Halfedge;
+typedef struct _Face      Face;
+typedef struct _Solid     Solid;
+
+struct _Vertex
 {
 	float3 pos;
+	Halfedge* he;	// one of the half-edges starting from this vertex
 };
 
-//struct VTexture
-//{
-//	float u;
-//	float v;
-//};
-//
-//struct VNormal
-//{
-//	float x;
-//	float y;
-//	float z;
-//};
+struct _Halfedge
+{
+	Vertex* vert;		// vertex at the beginning of the half-edge
+	Face* face;			// face bordered by the half-edge
+	Halfedge* twin;		// the half-edge adjacent and opposed
+	Halfedge* next;		// next half-edge along the same face
+};
 
-struct Face
+struct _Face
 {
 	uint3 v;
 	uint3 t;
 	uint3 n;
+	Halfedge* he;	// one of the half-edges bordering the face
 };
 
-struct Solid
+struct _Solid
 {
 	vector<Vertex> v;
 	vector<float2> vt;
 	vector<float3> vn;
 	vector<Face> f;
+	vector<Halfedge> he;
 	
 	float ambient[3];
 	float diffuse[3];
@@ -110,6 +113,8 @@ extern "C" void faceArea(int n_faces, int4* face_v_id, float3* vertex, float* fa
 
 ////////////////////////////////////////////////////////////////////////////////
 // declaration, forward
+CUTBoolean newHalfedgeList(Solid s);
+Halfedge* findTwin(Halfedge* hedge, Solid s);
 CUTBoolean run(int argc, char** argv);
 void cleanup();
 
@@ -185,6 +190,26 @@ void computeFPS()
 ////////////////////////////////////////////////////////////////////////////////
 CUTBoolean initGL(int argc, char **argv)
 {
+	// load poly mesh
+	string mesh_dir, mesh_name, obj_path;
+	char** mesh_cname;
+	mesh_cname = (char**) malloc(sizeof(char));
+	mesh_dir = "/Developer/GPU Computing/C/src/pbrSurfelsCloud/polyModels/";
+	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "mesh")) {
+		cutGetCmdLineArgumentstr( argc, (const char**)argv, "mesh", mesh_cname);
+	} else {
+		cout << "Please, specify a valid OBJ filename passed as command-line argument!\nSYNTAX:\n--mesh=filename.obj" << endl;
+		return CUTFalse;
+	}
+	mesh_name = *mesh_cname;
+	obj_path = mesh_dir + mesh_name;
+ 	h_imesh = loadOBJ(obj_path.c_str());
+	free(mesh_cname);
+	
+	// winged-edge structure creation
+	newHalfedgeList(h_imesh);
+	
+	// functions
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE);
     glutInitWindowSize(window_width, window_height);
@@ -244,10 +269,6 @@ CUTBoolean run(int argc, char** argv)
 	glutKeyboardFunc(keyboard);
 	glutMouseFunc(mouse);
 	glutMotionFunc(motion);
-	
-	// load poly mesh
- 	h_imesh = loadOBJ("/Developer/GPU Computing/C/src/pbrSurfelsCloud/polyModels/die.obj");
- 	
 	
 	// run the cuda part
 //   	runCuda();
@@ -612,16 +633,93 @@ void drawSolid(Solid model)
 		glTexCoord2f(model.vt[model.f[i].t.z-1].x, model.vt[model.f[i].t.z-1].y);
 		glVertex3f(model.v[model.f[i].v.z-1].pos.x, model.v[model.f[i].v.z-1].pos.y, model.v[model.f[i].v.z-1].pos.z);
 		
-		if (counter == 1)
-			printf("f %d/%d/%f %d/%d/%f %d/%d/%f\n"
-				   , model.f[i].v.x, model.f[i].t.x, model.vn[model.f[i].n.x].x
-				   , model.f[i].v.y, model.f[i].t.y, model.vn[model.f[i].n.y].y
-				   , model.f[i].v.z, model.f[i].t.z, model.vn[model.f[i].n.z].z);
+//		if (counter == 1)
+//			printf("f %d/%d/%f %d/%d/%f %d/%d/%f\n"
+//				   , model.f[i].v.x, model.f[i].t.x, model.vn[model.f[i].n.x].x
+//				   , model.f[i].v.y, model.f[i].t.y, model.vn[model.f[i].n.y].y
+//				   , model.f[i].v.z, model.f[i].t.z, model.vn[model.f[i].n.z].z);
 	}
 	
-	counter++;
+//	counter++;
 	
 	glEnd();
 	
 	glDisable(GL_TEXTURE_2D);
+}
+
+CUTBoolean newHalfedgeList(Solid s)
+{
+	if ( s.v.empty() || s.f.empty()) {
+		cout << "vertex list or face list is empty!" << endl;
+		return CUTFalse;
+	}
+	if ( !s.he.empty()) {
+		cout << "half-edge list already exists!" << endl;
+		return CUTFalse;
+	}
+	
+	Halfedge hedge;
+	s.he.reserve( 3 * s.f.size());
+	for (unsigned int i=0; i < s.f.size(); i++) {
+		hedge.vert = &s.v[ s.f[i].v.x-1 ];
+		hedge.face = &s.f[i];
+		s.he.push_back(hedge);
+		hedge.vert = &s.v[ s.f[i].v.y-1 ];
+		hedge.face = &s.f[i];
+		s.he.push_back(hedge);
+		hedge.vert = &s.v[ s.f[i].v.z-1 ];
+		hedge.face = &s.f[i];
+		s.he.push_back(hedge);
+		
+		s.f[i].he = &s.he.back();	// half-edge pointer of the face
+	}
+	
+	// find half-edge successor
+	for (unsigned int i=0; i < s.he.size(); i+=3) {
+		s.he[ i   ].next = &s.he[ i+1 ];
+		s.he[ i+1 ].next = &s.he[ i+2 ];
+		s.he[ i+2 ].next = &s.he[ i   ];
+	}
+	
+	// fill half-edge pointer of the vertex
+	for (unsigned int i=0; i < s.he.size(); i++) {
+		s.he[i].vert->he = &s.he[i];
+	}
+	
+	// find the half-edge adjacent and opposed to the current half-edge
+	for (unsigned int i=0; i < s.he.size(); i++) {
+		s.he[i].twin = findTwin(&s.he[i], s);
+	}
+	
+
+//	for (unsigned int i=0; i < s.f.size(); i++) {
+//		cout << s.f[i].he << "\t" << s.f[i].he->next << endl;
+//	}
+	
+	return CUTTrue;
+}
+
+Halfedge* findTwin(Halfedge* hedge, Solid s)
+{
+	Halfedge* twin_candidate;
+	Vertex* start, *end;
+	
+	start = hedge->vert;
+	end = hedge->next->vert;
+
+	for (unsigned int i=0; i < s.f.size(); i++) {
+//		cout << "Faccia " << i;
+		twin_candidate = s.f[i].he;
+		do {
+			if (start == twin_candidate->next->vert && end == twin_candidate->vert) {
+//				cout << twin_candidate << " gemello di " << hedge << ". " << "L'ho trovato nella faccia " << i << endl;
+				return twin_candidate;
+			}
+//			cout << " half-edge " << twin_candidate;
+			twin_candidate = twin_candidate->next;
+		} while (s.f[i].he != twin_candidate);
+//		cout << endl;
+	}
+	
+	return NULL;
 }

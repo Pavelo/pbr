@@ -52,6 +52,7 @@ struct _Halfedge
 	Face* face;			// face bordered by the half-edge
 	Halfedge* twin;		// the half-edge adjacent and opposed
 	Halfedge* next;		// next half-edge along the same face
+	float length;
 };
 
 struct _Face
@@ -113,16 +114,16 @@ extern "C" void faceArea(int n_faces, int4* face_v_id, float3* vertex, float* fa
 
 ////////////////////////////////////////////////////////////////////////////////
 // declaration, forward
-CUTBoolean newHalfedgeList(Solid s);
-Halfedge* findTwin(Halfedge* hedge, Solid s);
+CUTBoolean newHalfedgeList(Solid* s);
+Halfedge* findTwin(Halfedge* hedge, Solid* s);
 CUTBoolean run(int argc, char** argv);
 void cleanup();
 
 // GL functionality
 CUTBoolean initGL(int argc, char** argv);
 void drawCube();
-Solid loadOBJ(const char* path);
-void drawSolid(Solid model);
+CUTBoolean loadOBJ(const char* path, Solid* model);
+void drawSolid(Solid* model);
 
 // rendering callbacks
 void display();
@@ -134,8 +135,8 @@ void motion(int x, int y);
 void runCuda();
 void runAutoTest();
 
-Solid h_imesh;
-Solid h_omesh;
+Solid* h_imesh;
+Solid* h_omesh;
 
 int counter=0;
 
@@ -193,7 +194,10 @@ CUTBoolean initGL(int argc, char **argv)
 	// load poly mesh
 	string mesh_dir, mesh_name, obj_path;
 	char** mesh_cname;
+	
 	mesh_cname = (char**) malloc(sizeof(char));
+	h_imesh = (Solid*) malloc(sizeof(Solid));
+	
 	mesh_dir = "/Developer/GPU Computing/C/src/pbrSurfelsCloud/polyModels/";
 	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "mesh")) {
 		cutGetCmdLineArgumentstr( argc, (const char**)argv, "mesh", mesh_cname);
@@ -203,11 +207,14 @@ CUTBoolean initGL(int argc, char **argv)
 	}
 	mesh_name = *mesh_cname;
 	obj_path = mesh_dir + mesh_name;
- 	h_imesh = loadOBJ(obj_path.c_str());
+	loadOBJ(obj_path.c_str(), h_imesh);
 	free(mesh_cname);
 	
 	// winged-edge structure creation
 	newHalfedgeList(h_imesh);
+
+	// calculate face area (offline)
+	
 	
 	// functions
     glutInit(&argc, argv);
@@ -289,65 +296,65 @@ CUTBoolean run(int argc, char** argv)
 ////////////////////////////////////////////////////////////////////////////////
 void runCuda()
 {
-	unsigned int mem_size;
-	
-	// allocate memory and copy vertexes on device
-	mem_size = h_imesh.v.size() * sizeof(float3);
-	
-	float3* d_ivertex;
-	cutilSafeCall( cudaMalloc( (void**) &d_ivertex, mem_size));
-//	cutilSafeCall( cudaMemcpy( d_ivertex, h_imesh.v, mem_size, cudaMemcpyHostToDevice));
-	
-//	float3* h_overtex = (float3*) malloc(mem_size);
-//	cutilSafeCall( cudaMemcpy( h_overtex, d_ivertex, mem_size, cudaMemcpyDeviceToHost));
-	
-	// allocate memory and copy faces on device
-	mem_size = h_imesh.f.size() * sizeof(int3);
-	
-	int3* h_iface = (int3*) malloc(mem_size);
-	for (unsigned int i=0; i<h_imesh.f.size(); i++) {
-		h_iface[i].x = h_imesh.f[i].v.x;
-		h_iface[i].y = h_imesh.f[i].v.y;
-		h_iface[i].z = h_imesh.f[i].v.z;
-	}
-	
-	int3* d_iface;
-	cutilSafeCall( cudaMalloc( (void**) &d_iface, mem_size));
-	cutilSafeCall( cudaMemcpy( d_iface, h_iface, mem_size, cudaMemcpyHostToDevice));
-	
-	float* d_ofaceArea;
-	mem_size = h_imesh.f.size() * sizeof(float);
-	cutilSafeCall( cudaMalloc( (void**) &d_ofaceArea, mem_size));
-
-//	for (int i = 0; i < h_imesh.f.size(); i++) {
-//		cout << h_oface[i].v.x << "/" << h_oface[i].t.x << "/" << h_oface[i].n.x << "\t";
-//		cout << h_oface[i].v.y << "/" << h_oface[i].t.y << "/" << h_oface[i].n.y << "\t";
-//		cout << h_oface[i].v.z << "/" << h_oface[i].t.z << "/" << h_oface[i].n.z << "\t";
+//	unsigned int mem_size;
+//	
+//	// allocate memory and copy vertexes on device
+//	mem_size = h_imesh.v.size() * sizeof(float3);
+//	
+//	float3* d_ivertex;
+//	cutilSafeCall( cudaMalloc( (void**) &d_ivertex, mem_size));
+////	cutilSafeCall( cudaMemcpy( d_ivertex, h_imesh.v, mem_size, cudaMemcpyHostToDevice));
+//	
+////	float3* h_overtex = (float3*) malloc(mem_size);
+////	cutilSafeCall( cudaMemcpy( h_overtex, d_ivertex, mem_size, cudaMemcpyDeviceToHost));
+//	
+//	// allocate memory and copy faces on device
+//	mem_size = h_imesh.f.size() * sizeof(int3);
+//	
+//	int3* h_iface = (int3*) malloc(mem_size);
+//	for (unsigned int i=0; i<h_imesh.f.size(); i++) {
+//		h_iface[i].x = h_imesh.f[i].v.x;
+//		h_iface[i].y = h_imesh.f[i].v.y;
+//		h_iface[i].z = h_imesh.f[i].v.z;
 //	}
-	
-	float4* d_serv;
-	cutilSafeCall( cudaMalloc( (void**) &d_serv, h_imesh.f.size()*sizeof(float4)));
-	
-//	faceArea( h_imesh.f.size(), d_iface, d_ivertex, d_ofaceArea, d_serv);
-	
-	float4* h_serv = (float4*) malloc(h_imesh.f.size()*sizeof(float4));
-	cutilSafeCall( cudaMemcpy( h_serv, d_serv, h_imesh.f.size()*sizeof(float4), cudaMemcpyDeviceToHost));
-	
-	for (unsigned int i=0; i<h_imesh.f.size(); i++) {
-		cout << h_serv[i].x << "\t" << h_serv[i].y << "\t" << h_serv[i].z << "\t" << h_serv[i].w << endl;
-	}
-	
-	float* h_ofaceArea = (float*) malloc(mem_size);
-	
-	// free memory
-	cutilSafeCall( cudaFree( d_ivertex));
-	cutilSafeCall( cudaFree( d_iface));
-	cutilSafeCall( cudaFree( d_ofaceArea));
-	cutilSafeCall( cudaFree( d_serv));
-	free( h_iface);
-//	free( h_overtex);
-	free( h_serv);
-	free( h_ofaceArea);
+//	
+//	int3* d_iface;
+//	cutilSafeCall( cudaMalloc( (void**) &d_iface, mem_size));
+//	cutilSafeCall( cudaMemcpy( d_iface, h_iface, mem_size, cudaMemcpyHostToDevice));
+//	
+//	float* d_ofaceArea;
+//	mem_size = h_imesh.f.size() * sizeof(float);
+//	cutilSafeCall( cudaMalloc( (void**) &d_ofaceArea, mem_size));
+//
+////	for (int i = 0; i < h_imesh.f.size(); i++) {
+////		cout << h_oface[i].v.x << "/" << h_oface[i].t.x << "/" << h_oface[i].n.x << "\t";
+////		cout << h_oface[i].v.y << "/" << h_oface[i].t.y << "/" << h_oface[i].n.y << "\t";
+////		cout << h_oface[i].v.z << "/" << h_oface[i].t.z << "/" << h_oface[i].n.z << "\t";
+////	}
+//	
+//	float4* d_serv;
+//	cutilSafeCall( cudaMalloc( (void**) &d_serv, h_imesh.f.size()*sizeof(float4)));
+//	
+////	faceArea( h_imesh.f.size(), d_iface, d_ivertex, d_ofaceArea, d_serv);
+//	
+//	float4* h_serv = (float4*) malloc(h_imesh.f.size()*sizeof(float4));
+//	cutilSafeCall( cudaMemcpy( h_serv, d_serv, h_imesh.f.size()*sizeof(float4), cudaMemcpyDeviceToHost));
+//	
+//	for (unsigned int i=0; i<h_imesh.f.size(); i++) {
+//		cout << h_serv[i].x << "\t" << h_serv[i].y << "\t" << h_serv[i].z << "\t" << h_serv[i].w << endl;
+//	}
+//	
+//	float* h_ofaceArea = (float*) malloc(mem_size);
+//	
+//	// free memory
+//	cutilSafeCall( cudaFree( d_ivertex));
+//	cutilSafeCall( cudaFree( d_iface));
+//	cutilSafeCall( cudaFree( d_ofaceArea));
+//	cutilSafeCall( cudaFree( d_serv));
+//	free( h_iface);
+////	free( h_overtex);
+//	free( h_serv);
+//	free( h_ofaceArea);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -386,6 +393,8 @@ void cleanup()
     if (g_CheckRender) {
         delete g_CheckRender; g_CheckRender = NULL;
     }
+	
+	free(h_imesh);
 }
 
 
@@ -471,12 +480,11 @@ void drawCube()
 	glEnd();
 }
 
-Solid loadOBJ(const char* path)
+CUTBoolean loadOBJ(const char* path, Solid* model)
 {
-	int loaded;
+	CUTBoolean loaded;
 	string s_line;
 	const char *line;
-	Solid model;
 //	model = (Solid*) malloc(sizeof(Solid));
 	
 	vector<string> vtn;
@@ -517,19 +525,19 @@ Solid loadOBJ(const char* path)
 				if (line[1] == 't')
 				{
 					sscanf(line, "%*c%*c %f %f", &vt_tmp.x, &vt_tmp.y);
-					model.vt.push_back(vt_tmp);
+					model->vt.push_back(vt_tmp);
 				}
 				// normal vertex
 				else if (line[1] == 'n')
 				{
 					sscanf(line, "%*c%*c %f %f %f", &vn_tmp.x, &vn_tmp.y, &vn_tmp.z);
-					model.vn.push_back(vn_tmp);
+					model->vn.push_back(vn_tmp);
 				}
 				// vertex
 				else
 				{
 					sscanf(line, "%*c %f %f %f", &v_tmp.pos.x, &v_tmp.pos.y, &v_tmp.pos.z);
-					model.v.push_back(v_tmp);
+					model->v.push_back(v_tmp);
 				}
 			}
 			// face
@@ -574,7 +582,7 @@ Solid loadOBJ(const char* path)
 					f_tmp.n.y = vtn_parsed[ 3*(i-1) +2 ];
 					f_tmp.n.z = vtn_parsed[ 3*i +2 ];
 					
-					model.f.push_back(f_tmp);
+					model->f.push_back(f_tmp);
 				}
 								
 				vtn_parsed.clear();
@@ -595,49 +603,49 @@ Solid loadOBJ(const char* path)
 // 				}
 // 			}
 		}
-		loaded = 1;
+		loaded = CUTTrue;
 	}
 	else
 	{
-		loaded = 0;
+		loaded = CUTFalse;
 	}
 	
 	fp.close();
 	
-	return model;
+	return loaded;
 }
 
-void drawSolid(Solid model)
+void drawSolid(Solid* model)
 {
-	glMaterialfv(GL_FRONT, GL_AMBIENT, model.ambient);
-	glMaterialfv(GL_FRONT, GL_DIFFUSE, model.diffuse);
-	glMaterialfv(GL_FRONT, GL_SPECULAR, model.specular);
-	glMaterialf(GL_FRONT, GL_SHININESS, model.shininess);
+	glMaterialfv(GL_FRONT, GL_AMBIENT, model->ambient);
+	glMaterialfv(GL_FRONT, GL_DIFFUSE, model->diffuse);
+	glMaterialfv(GL_FRONT, GL_SPECULAR, model->specular);
+	glMaterialf(GL_FRONT, GL_SHININESS, model->shininess);
 	
 	glEnable(GL_TEXTURE_2D);
-	glBindTexture(GL_TEXTURE_2D, model.textureId);
+	glBindTexture(GL_TEXTURE_2D, model->textureId);
 	
 	glBegin(GL_TRIANGLES);
 	
-	for (unsigned int i=0; i < model.f.size(); i++)
+	for (unsigned int i=0; i < model->f.size(); i++)
 	{
-		glNormal3f(model.vn[model.f[i].n.x-1].x, model.vn[model.f[i].n.x-1].y, model.vn[model.f[i].n.x-1].z);
-		glTexCoord2f(model.vt[model.f[i].t.x-1].x, model.vt[model.f[i].t.x-1].y);
-		glVertex3f(model.v[model.f[i].v.x-1].pos.x, model.v[model.f[i].v.x-1].pos.y, model.v[model.f[i].v.x-1].pos.z);
+		glNormal3f(model->vn[model->f[i].n.x-1].x, model->vn[model->f[i].n.x-1].y, model->vn[model->f[i].n.x-1].z);
+		glTexCoord2f(model->vt[model->f[i].t.x-1].x, model->vt[model->f[i].t.x-1].y);
+		glVertex3f(model->v[model->f[i].v.x-1].pos.x, model->v[model->f[i].v.x-1].pos.y, model->v[model->f[i].v.x-1].pos.z);
 		
-		glNormal3f(model.vn[model.f[i].n.y-1].x, model.vn[model.f[i].n.y-1].y, model.vn[model.f[i].n.y-1].z);
-		glTexCoord2f(model.vt[model.f[i].t.y-1].x, model.vt[model.f[i].t.y-1].y);
-		glVertex3f(model.v[model.f[i].v.y-1].pos.x, model.v[model.f[i].v.y-1].pos.y, model.v[model.f[i].v.y-1].pos.z);
+		glNormal3f(model->vn[model->f[i].n.y-1].x, model->vn[model->f[i].n.y-1].y, model->vn[model->f[i].n.y-1].z);
+		glTexCoord2f(model->vt[model->f[i].t.y-1].x, model->vt[model->f[i].t.y-1].y);
+		glVertex3f(model->v[model->f[i].v.y-1].pos.x, model->v[model->f[i].v.y-1].pos.y, model->v[model->f[i].v.y-1].pos.z);
 		
-		glNormal3f(model.vn[model.f[i].n.z-1].x, model.vn[model.f[i].n.z-1].y, model.vn[model.f[i].n.z-1].z);
-		glTexCoord2f(model.vt[model.f[i].t.z-1].x, model.vt[model.f[i].t.z-1].y);
-		glVertex3f(model.v[model.f[i].v.z-1].pos.x, model.v[model.f[i].v.z-1].pos.y, model.v[model.f[i].v.z-1].pos.z);
+		glNormal3f(model->vn[model->f[i].n.z-1].x, model->vn[model->f[i].n.z-1].y, model->vn[model->f[i].n.z-1].z);
+		glTexCoord2f(model->vt[model->f[i].t.z-1].x, model->vt[model->f[i].t.z-1].y);
+		glVertex3f(model->v[model->f[i].v.z-1].pos.x, model->v[model->f[i].v.z-1].pos.y, model->v[model->f[i].v.z-1].pos.z);
 		
 //		if (counter == 1)
 //			printf("f %d/%d/%f %d/%d/%f %d/%d/%f\n"
-//				   , model.f[i].v.x, model.f[i].t.x, model.vn[model.f[i].n.x].x
-//				   , model.f[i].v.y, model.f[i].t.y, model.vn[model.f[i].n.y].y
-//				   , model.f[i].v.z, model.f[i].t.z, model.vn[model.f[i].n.z].z);
+//				   , model->f[i].v.x, model->f[i].t.x, model->vn[model->f[i].n.x].x
+//				   , model->f[i].v.y, model->f[i].t.y, model->vn[model->f[i].n.y].y
+//				   , model->f[i].v.z, model->f[i].t.z, model->vn[model->f[i].n.z].z);
 	}
 	
 //	counter++;
@@ -647,59 +655,58 @@ void drawSolid(Solid model)
 	glDisable(GL_TEXTURE_2D);
 }
 
-CUTBoolean newHalfedgeList(Solid s)
+CUTBoolean newHalfedgeList(Solid* s)
 {
-	if ( s.v.empty() || s.f.empty()) {
+	if ( s->v.empty() || s->f.empty()) {
 		cout << "vertex list or face list is empty!" << endl;
 		return CUTFalse;
 	}
-	if ( !s.he.empty()) {
+	if ( !s->he.empty()) {
 		cout << "half-edge list already exists!" << endl;
 		return CUTFalse;
 	}
 	
 	Halfedge hedge;
-	s.he.reserve( 3 * s.f.size());
-	for (unsigned int i=0; i < s.f.size(); i++) {
-		hedge.vert = &s.v[ s.f[i].v.x-1 ];
-		hedge.face = &s.f[i];
-		s.he.push_back(hedge);
-		hedge.vert = &s.v[ s.f[i].v.y-1 ];
-		hedge.face = &s.f[i];
-		s.he.push_back(hedge);
-		hedge.vert = &s.v[ s.f[i].v.z-1 ];
-		hedge.face = &s.f[i];
-		s.he.push_back(hedge);
+	s->he.reserve( 3 * s->f.size());
+	for (unsigned int i=0; i < s->f.size(); i++) {
+		hedge.vert = &s->v[ s->f[i].v.x-1 ];
+		hedge.face = &s->f[i];
+		s->he.push_back(hedge);
+		hedge.vert = &s->v[ s->f[i].v.y-1 ];
+		hedge.face = &s->f[i];
+		s->he.push_back(hedge);
+		hedge.vert = &s->v[ s->f[i].v.z-1 ];
+		hedge.face = &s->f[i];
+		s->he.push_back(hedge);
 		
-		s.f[i].he = &s.he.back();	// half-edge pointer of the face
+		s->f[i].he = &s->he.back();	// half-edge pointer of the face
 	}
 	
 	// find half-edge successor
-	for (unsigned int i=0; i < s.he.size(); i+=3) {
-		s.he[ i   ].next = &s.he[ i+1 ];
-		s.he[ i+1 ].next = &s.he[ i+2 ];
-		s.he[ i+2 ].next = &s.he[ i   ];
+	for (unsigned int i=0; i < s->he.size(); i+=3) {
+		s->he[ i   ].next = &s->he[ i+1 ];
+		s->he[ i+1 ].next = &s->he[ i+2 ];
+		s->he[ i+2 ].next = &s->he[ i   ];
 	}
 	
 	// fill half-edge pointer of the vertex
-	for (unsigned int i=0; i < s.he.size(); i++) {
-		s.he[i].vert->he = &s.he[i];
+	for (unsigned int i=0; i < s->he.size(); i++) {
+		s->he[i].vert->he = &s->he[i];
 	}
 	
 	// find the half-edge adjacent and opposed to the current half-edge
-	for (unsigned int i=0; i < s.he.size(); i++) {
-		s.he[i].twin = findTwin(&s.he[i], s);
+	for (unsigned int i=0; i < s->he.size(); i++) {
+		s->he[i].twin = findTwin(&s->he[i], s);
 	}
 	
-
-//	for (unsigned int i=0; i < s.f.size(); i++) {
-//		cout << s.f[i].he << "\t" << s.f[i].he->next << endl;
+//	for (unsigned int i=0; i < s->he.size(); i++) {
+//		cout << s->he[i].twin << "\t" << s->he[i].next->twin << endl;
 //	}
-	
+
 	return CUTTrue;
 }
 
-Halfedge* findTwin(Halfedge* hedge, Solid s)
+Halfedge* findTwin(Halfedge* hedge, Solid* s)
 {
 	Halfedge* twin_candidate;
 	Vertex* start, *end;
@@ -707,9 +714,9 @@ Halfedge* findTwin(Halfedge* hedge, Solid s)
 	start = hedge->vert;
 	end = hedge->next->vert;
 
-	for (unsigned int i=0; i < s.f.size(); i++) {
+	for (unsigned int i=0; i < s->f.size(); i++) {
 //		cout << "Faccia " << i;
-		twin_candidate = s.f[i].he;
+		twin_candidate = s->f[i].he;
 		do {
 			if (start == twin_candidate->next->vert && end == twin_candidate->vert) {
 //				cout << twin_candidate << " gemello di " << hedge << ". " << "L'ho trovato nella faccia " << i << endl;
@@ -717,7 +724,7 @@ Halfedge* findTwin(Halfedge* hedge, Solid s)
 			}
 //			cout << " half-edge " << twin_candidate;
 			twin_candidate = twin_candidate->next;
-		} while (s.f[i].he != twin_candidate);
+		} while (s->f[i].he != twin_candidate);
 //		cout << endl;
 	}
 	

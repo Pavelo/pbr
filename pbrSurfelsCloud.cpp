@@ -61,6 +61,7 @@ struct _Face
 	uint3 t;
 	uint3 n;
 	Halfedge* he;	// one of the half-edges bordering the face
+	float area;
 };
 
 struct _Solid
@@ -116,6 +117,8 @@ extern "C" void faceArea(int n_faces, int4* face_v_id, float3* vertex, float* fa
 // declaration, forward
 CUTBoolean newHalfedgeList(Solid* s);
 Halfedge* findTwin(Halfedge* hedge, Solid* s);
+float halfedgeLength(Vertex* v1, Vertex* v2);
+CUTBoolean faceArea(Solid* s);
 CUTBoolean run(int argc, char** argv);
 void cleanup();
 
@@ -214,7 +217,11 @@ CUTBoolean initGL(int argc, char **argv)
 	newHalfedgeList(h_imesh);
 
 	// calculate face area (offline)
+	cout << faceArea(h_imesh) << endl;
 	
+	for (unsigned int i=0; i < h_imesh->he.size(); i++) {
+		cout << i<<":\t"<<h_imesh->he[i].length << endl;
+	}
 	
 	// functions
     glutInit(&argc, argv);
@@ -698,10 +705,6 @@ CUTBoolean newHalfedgeList(Solid* s)
 	for (unsigned int i=0; i < s->he.size(); i++) {
 		s->he[i].twin = findTwin(&s->he[i], s);
 	}
-	
-//	for (unsigned int i=0; i < s->he.size(); i++) {
-//		cout << s->he[i].twin << "\t" << s->he[i].next->twin << endl;
-//	}
 
 	return CUTTrue;
 }
@@ -715,18 +718,41 @@ Halfedge* findTwin(Halfedge* hedge, Solid* s)
 	end = hedge->next->vert;
 
 	for (unsigned int i=0; i < s->f.size(); i++) {
-//		cout << "Faccia " << i;
 		twin_candidate = s->f[i].he;
 		do {
 			if (start == twin_candidate->next->vert && end == twin_candidate->vert) {
-//				cout << twin_candidate << " gemello di " << hedge << ". " << "L'ho trovato nella faccia " << i << endl;
 				return twin_candidate;
 			}
-//			cout << " half-edge " << twin_candidate;
 			twin_candidate = twin_candidate->next;
 		} while (s->f[i].he != twin_candidate);
-//		cout << endl;
 	}
 	
 	return NULL;
+}
+
+float halfedgeLength(Vertex* v1, Vertex* v2)
+{
+	
+	float x_diff, y_diff, z_diff;
+	
+	x_diff = v1->pos.x - v2->pos.x;
+	y_diff = v1->pos.y - v2->pos.y;
+	z_diff = v1->pos.z - v2->pos.z;
+	
+	return sqrt( x_diff*x_diff + y_diff*y_diff + z_diff*z_diff );
+}
+
+CUTBoolean faceArea(Solid* s)
+{
+	Halfedge* he_temp;
+
+	for (unsigned int i=0; i < s->v.size(); i++) {
+		he_temp = s->v[i].he;
+		do {
+			he_temp->length = halfedgeLength( he_temp->vert, he_temp->twin->vert);
+			he_temp = he_temp->twin->next;
+		} while (he_temp != s->v[i].he);
+	}
+	
+	return CUTTrue;
 }

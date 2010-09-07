@@ -115,11 +115,12 @@ extern "C" void faceArea(int n_faces, int4* face_v_id, float3* vertex, float* fa
 
 ////////////////////////////////////////////////////////////////////////////////
 // declaration, forward
-CUTBoolean newHalfedgeList(Solid* s);
-Halfedge* findTwin(Halfedge* hedge, Solid* s);
-float halfedgeLength(Vertex* v1, Vertex* v2);
-CUTBoolean faceArea(Solid* s);
-CUTBoolean run(int argc, char** argv);
+CUTBoolean newHalfedgeList( Solid* s);
+Halfedge* findTwin( Halfedge* hedge, Solid* s);
+float halfedgeLength( Vertex* v1, Vertex* v2);
+float semiperimeter( vector<float> length);
+CUTBoolean faceArea( Solid* s);
+CUTBoolean run( int argc, char** argv);
 void cleanup();
 
 // GL functionality
@@ -219,8 +220,8 @@ CUTBoolean initGL(int argc, char **argv)
 	// calculate face area (offline)
 	cout << faceArea(h_imesh) << endl;
 	
-	for (unsigned int i=0; i < h_imesh->he.size(); i++) {
-		cout << i<<":\t"<<h_imesh->he[i].length << endl;
+	for (unsigned int i=0; i < h_imesh->f.size(); i++) {
+		cout << i<<":\t"<<h_imesh->f[i].area << endl;
 	}
 	
 	// functions
@@ -742,16 +743,44 @@ float halfedgeLength(Vertex* v1, Vertex* v2)
 	return sqrt( x_diff*x_diff + y_diff*y_diff + z_diff*z_diff );
 }
 
+float semiperimeter( vector<float> length)
+{
+	float perimeter = 0;
+	
+	for (unsigned int i=0; i < length.size(); i++) {
+		perimeter += length.at(i);
+	}
+	
+	return perimeter * .5f;
+}
+
 CUTBoolean faceArea(Solid* s)
 {
 	Halfedge* he_temp;
+	vector<float> he_length;
+	float sp;
 
+	// calculate half-edge length
 	for (unsigned int i=0; i < s->v.size(); i++) {
 		he_temp = s->v[i].he;
 		do {
 			he_temp->length = halfedgeLength( he_temp->vert, he_temp->twin->vert);
 			he_temp = he_temp->twin->next;
 		} while (he_temp != s->v[i].he);
+	}
+	
+	// for each face calculate its area
+	for (unsigned int i=0; i < s->f.size(); i++) {
+		he_length.clear();
+		he_temp = s->f[i].he;
+		do {
+			he_length.push_back( he_temp->length);
+			he_temp = he_temp->next;
+		} while (he_temp != s->f[i].he);
+		
+		sp = semiperimeter( he_length);
+		
+		s->f[i].area = sqrt( sp * (sp - he_length.at(0)) * (sp - he_length.at(1)) * (sp - he_length.at(2)) );
 	}
 	
 	return CUTTrue;

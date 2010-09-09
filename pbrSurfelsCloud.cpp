@@ -39,6 +39,7 @@ typedef struct _Vertex    Vertex;
 typedef struct _Halfedge  Halfedge;
 typedef struct _Face      Face;
 typedef struct _Solid     Solid;
+typedef struct _Surfel    Surfel;
 
 struct _Vertex
 {
@@ -82,6 +83,12 @@ struct _Solid
 	char texturePath[32];
 };
 
+struct _Surfel {
+	float3 pos;
+	float3 normal;
+	float area;
+};
+
 ////////////////////////////////////////////////////////////////////////////////
 // constants
 const unsigned int window_width = 512;
@@ -115,11 +122,15 @@ extern "C" void faceArea(int n_faces, int4* face_v_id, float3* vertex, float* fa
 
 ////////////////////////////////////////////////////////////////////////////////
 // declaration, forward
-CUTBoolean newHalfedgeList( Solid* s);
+CUTBoolean createHalfedgeList( Solid* s);
 Halfedge* findTwin( Halfedge* hedge, Solid* s);
 float halfedgeLength( Vertex* v1, Vertex* v2);
 float semiperimeter( vector<float> length);
 CUTBoolean faceArea( Solid* s);
+float magnitude( float3 vec);
+float3 normalizeVector( float3 vec);
+float3 normalsAverage( vector<float3> normals);
+float surfelArea( Vertex* v);
 CUTBoolean run( int argc, char** argv);
 void cleanup();
 
@@ -215,13 +226,47 @@ CUTBoolean initGL(int argc, char **argv)
 	free(mesh_cname);
 	
 	// winged-edge structure creation
-	newHalfedgeList(h_imesh);
+	createHalfedgeList(h_imesh);
 
 	// calculate face area (offline)
-	cout << faceArea(h_imesh) << endl;
+	faceArea(h_imesh);
 	
-	for (unsigned int i=0; i < h_imesh->f.size(); i++) {
-		cout << i<<":\t"<<h_imesh->f[i].area << endl;
+	// create point cloud
+	vector<Surfel> pointCloud;
+	Surfel point;
+	vector<float3> vnorm;
+	float3 normal;
+	
+	for (unsigned int i=0; i < h_imesh->v.size(); i++) {
+		point.pos = h_imesh->v[i].pos;
+		
+		// averaging vertex normals
+		vnorm.clear();
+		for (unsigned int j=0; j < h_imesh->f.size(); j++) {
+			if (h_imesh->f[j].v.x-1 == i) {
+				normal = h_imesh->vn[ h_imesh->f[j].n.x-1 ];
+				vnorm.push_back( normal );
+			} else if (h_imesh->f[j].v.y-1 == i) {
+				normal = h_imesh->vn[ h_imesh->f[j].n.y-1 ];
+				vnorm.push_back( normal );
+			} else if (h_imesh->f[j].v.z-1 == i) {
+				normal = h_imesh->vn[ h_imesh->f[j].n.z-1 ];
+				vnorm.push_back( normal );
+			}
+		}
+		normal = normalsAverage( vnorm);
+		point.normal = normalizeVector( normal);
+		
+		// calculate surfel area
+		point.area = surfelArea( &h_imesh->v[i]);
+		
+		pointCloud.push_back( point );
+	}
+	
+	for (unsigned int i=0; i < pointCloud.size(); i++) {
+		printf("surfel %u:\t( %12g , %12g , %12g )   ||   normal( %12g , %12g , %12g )   ||   area: %g\n",
+			   i, pointCloud[i].pos.x, pointCloud[i].pos.y, pointCloud[i].pos.z,
+			   pointCloud[i].normal.x, pointCloud[i].normal.y, pointCloud[i].normal.z, pointCloud[i].area);
 	}
 	
 	// functions
@@ -493,7 +538,6 @@ CUTBoolean loadOBJ(const char* path, Solid* model)
 	CUTBoolean loaded;
 	string s_line;
 	const char *line;
-//	model = (Solid*) malloc(sizeof(Solid));
 	
 	vector<string> vtn;
 	vector<int> vtn_parsed;
@@ -663,7 +707,7 @@ void drawSolid(Solid* model)
 	glDisable(GL_TEXTURE_2D);
 }
 
-CUTBoolean newHalfedgeList(Solid* s)
+CUTBoolean createHalfedgeList(Solid* s)
 {
 	if ( s->v.empty() || s->f.empty()) {
 		cout << "vertex list or face list is empty!" << endl;
@@ -780,8 +824,48 @@ CUTBoolean faceArea(Solid* s)
 		
 		sp = semiperimeter( he_length);
 		
+		// area is obtained with Heron's formula
 		s->f[i].area = sqrt( sp * (sp - he_length.at(0)) * (sp - he_length.at(1)) * (sp - he_length.at(2)) );
 	}
 	
 	return CUTTrue;
+}
+
+float3 normalsAverage(vector<float3> normals)
+{
+	float3 sum = make_float3(0,0,0);
+	float nn = normals.size();
+	
+	for (unsigned int i=0; i < nn; i++) {
+		sum.x += normals[i].x;
+		sum.y += normals[i].y;
+		sum.z += normals[i].z;
+	}
+	
+	return make_float3( sum.x/nn, sum.y/nn, sum.z/nn);
+}
+
+float magnitude(float3 vec)
+{
+	return sqrt( vec.x*vec.x + vec.y*vec.y + vec.z*vec.z );
+}
+
+float3 normalizeVector(float3 vec)
+{
+	float mag = magnitude( vec);
+	
+	return make_float3( vec.x/mag, vec.y/mag, vec.z/mag );
+}
+
+float surfelArea(Vertex* v)
+{
+	Halfedge* hedge = v->he;
+	float area_sum = .0f;
+	
+	do {
+		area_sum += hedge->face->area;
+		hedge = hedge->twin->next;
+	} while (hedge != v->he);
+	
+	return area_sum * .3333333333f;
 }

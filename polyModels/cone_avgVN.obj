@@ -1,6 +1,6 @@
 # This file uses centimeters as units for non-parametric coordinates.
 
-mtllib cone_avgVerts.mtl
+mtllib cone_avgVN.mtl
 g default
 v 0.893734 -3.217084 -1.547991
 v -0.893733 -3.217084 -1.547992

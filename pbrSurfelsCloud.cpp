@@ -131,12 +131,14 @@ float magnitude( float3 vec);
 float3 normalizeVector( float3 vec);
 float3 normalsAverage( vector<float3> normals);
 float surfelArea( Vertex* v);
+CUTBoolean preprocessing( int argc, char** argv);
 CUTBoolean run( int argc, char** argv);
 void cleanup();
+void setLighting();
 
 // GL functionality
 CUTBoolean initGL(int argc, char** argv);
-void drawCube();
+void drawCube( float size);
 CUTBoolean loadOBJ(const char* path, Solid* model);
 void drawSolid(Solid* model);
 
@@ -160,11 +162,16 @@ int counter=0;
 ////////////////////////////////////////////////////////////////////////////////
 int main(int argc, char** argv)
 {
+	if ( !preprocessing(argc, argv) )
+		return 1;
+	
     run(argc, argv);
     
     cudaThreadExit();
     
     cutilExit(argc, argv);
+	
+	return 0;
 }
 
 void AutoQATest()
@@ -186,7 +193,7 @@ void computeFPS()
     }
     if (fpsCount == fpsLimit) {
         char fps[256];
-        float ifps = 1.f / (cutGetAverageTimerValue(timer) / 1000.f);
+        float ifps = 1.f / (cutGetAverageTimerValue(timer) * .001f);
         sprintf(fps, "%sCuda GL Interop (polygon to cloud): %3.1f fps", 
                 ((g_CheckRender && g_CheckRender->IsQAReadback()) ? "AutoTest: " : ""), ifps);  
 
@@ -206,72 +213,9 @@ void computeFPS()
 ////////////////////////////////////////////////////////////////////////////////
 CUTBoolean initGL(int argc, char **argv)
 {
-	// load poly mesh
-	string mesh_dir, mesh_name, obj_path;
-	char** mesh_cname;
-	
-	mesh_cname = (char**) malloc(sizeof(char));
-	h_imesh = (Solid*) malloc(sizeof(Solid));
-	
-	mesh_dir = "/Developer/GPU Computing/C/src/pbrSurfelsCloud/polyModels/";
-	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "mesh")) {
-		cutGetCmdLineArgumentstr( argc, (const char**)argv, "mesh", mesh_cname);
-	} else {
-		cout << "Please, specify a valid OBJ filename passed as command-line argument!\nSYNTAX:\n--mesh=filename.obj" << endl;
-		return CUTFalse;
-	}
-	mesh_name = *mesh_cname;
-	obj_path = mesh_dir + mesh_name;
-	loadOBJ(obj_path.c_str(), h_imesh);
-	free(mesh_cname);
-	
-	// winged-edge structure creation
-	createHalfedgeList(h_imesh);
-
-	// calculate face area (offline)
-	faceArea(h_imesh);
-	
-	// create point cloud
-	vector<Surfel> pointCloud;
-	Surfel point;
-	vector<float3> vnorm;
-	float3 normal;
-	
-	for (unsigned int i=0; i < h_imesh->v.size(); i++) {
-		point.pos = h_imesh->v[i].pos;
-		
-		// averaging vertex normals
-		vnorm.clear();
-		for (unsigned int j=0; j < h_imesh->f.size(); j++) {
-			if (h_imesh->f[j].v.x-1 == i) {
-				normal = h_imesh->vn[ h_imesh->f[j].n.x-1 ];
-				vnorm.push_back( normal );
-			} else if (h_imesh->f[j].v.y-1 == i) {
-				normal = h_imesh->vn[ h_imesh->f[j].n.y-1 ];
-				vnorm.push_back( normal );
-			} else if (h_imesh->f[j].v.z-1 == i) {
-				normal = h_imesh->vn[ h_imesh->f[j].n.z-1 ];
-				vnorm.push_back( normal );
-			}
-		}
-		normal = normalsAverage( vnorm);
-		point.normal = normalizeVector( normal);
-		
-		// calculate surfel area
-		point.area = surfelArea( &h_imesh->v[i]);
-		
-		pointCloud.push_back( point );
-	}
-	
-	for (unsigned int i=0; i < pointCloud.size(); i++) {
-		printf("surfel %u:\t( %12g , %12g , %12g )   ||   normal( %12g , %12g , %12g )   ||   area: %g\n",
-			   i, pointCloud[i].pos.x, pointCloud[i].pos.y, pointCloud[i].pos.z,
-			   pointCloud[i].normal.x, pointCloud[i].normal.y, pointCloud[i].normal.z, pointCloud[i].area);
-	}
-	
 	// functions
     glutInit(&argc, argv);
-    glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE);
+    glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE | GLUT_DEPTH);
     glutInitWindowSize(window_width, window_height);
     glutCreateWindow("Cuda GL Interop (polygon to cloud)");
     glutDisplayFunc(display);
@@ -288,7 +232,7 @@ CUTBoolean initGL(int argc, char **argv)
 
     // default initialization
     glClearColor(0.0, 0.0, 0.0, 1.0);
-    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_DEPTH_TEST);
 
     // viewport
     glViewport(0, 0, window_width, window_height);
@@ -296,7 +240,11 @@ CUTBoolean initGL(int argc, char **argv)
     // projection
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    gluPerspective(60.0, (GLfloat) window_width / (GLfloat) window_height, 0.1, 10.0);
+    gluPerspective(60.0, (GLfloat) window_width / (GLfloat) window_height, 0.1, 30.0);
+	
+	// lighting
+	setLighting();
+	glEnable(GL_LIGHTING);
 
     CUT_CHECK_ERROR_GL();
 
@@ -426,9 +374,9 @@ void display()
     glRotatef(rotate_x, 1.0, 0.0, 0.0);
     glRotatef(rotate_y, 0.0, 1.0, 0.0);
 
-// 	drawCube();
+// 	drawCube(1.f);
 	
-  	drawSolid(h_imesh);
+	drawSolid(h_imesh);
 	
     glutSwapBuffers();
     glutPostRedisplay();
@@ -498,38 +446,51 @@ void motion(int x, int y)
     mouse_old_y = y;
 }
 
-void drawCube()
+void drawCube(float size)
 {
+	float c = size*0.5f;
 	glBegin(GL_QUADS);
-		glVertex3f( 1.0f, 1.0f,-1.0f);			// Top Right Of The Quad (Top)
-		glVertex3f(-1.0f, 1.0f,-1.0f);			// Top Left Of The Quad (Top)
-		glVertex3f(-1.0f, 1.0f, 1.0f);			// Bottom Left Of The Quad (Top)
-		glVertex3f( 1.0f, 1.0f, 1.0f);			// Bottom Right Of The Quad (Top)
-
-		glVertex3f( 1.0f,-1.0f, 1.0f);			// Top Right Of The Quad (Bottom)
-		glVertex3f(-1.0f,-1.0f, 1.0f);			// Top Left Of The Quad (Bottom)
-		glVertex3f(-1.0f,-1.0f,-1.0f);			// Bottom Left Of The Quad (Bottom)
-		glVertex3f( 1.0f,-1.0f,-1.0f);			// Bottom Right Of The Quad (Bottom)
-		
-		glVertex3f( 1.0f, 1.0f, 1.0f);			// Top Right Of The Quad (Front)
-		glVertex3f(-1.0f, 1.0f, 1.0f);			// Top Left Of The Quad (Front)
-		glVertex3f(-1.0f,-1.0f, 1.0f);			// Bottom Left Of The Quad (Front)
-		glVertex3f( 1.0f,-1.0f, 1.0f);			// Bottom Right Of The Quad (Front)
-		
-		glVertex3f( 1.0f,-1.0f,-1.0f);			// Bottom Left Of The Quad (Back)
-		glVertex3f(-1.0f,-1.0f,-1.0f);			// Bottom Right Of The Quad (Back)
-		glVertex3f(-1.0f, 1.0f,-1.0f);			// Top Right Of The Quad (Back)
-		glVertex3f( 1.0f, 1.0f,-1.0f);			// Top Left Of The Quad (Back)
-
-		glVertex3f(-1.0f, 1.0f, 1.0f);			// Top Right Of The Quad (Left)
-		glVertex3f(-1.0f, 1.0f,-1.0f);			// Top Left Of The Quad (Left)
-		glVertex3f(-1.0f,-1.0f,-1.0f);			// Bottom Left Of The Quad (Left)
-		glVertex3f(-1.0f,-1.0f, 1.0f);			// Bottom Right Of The Quad (Left)
-		
-		glVertex3f( 1.0f, 1.0f,-1.0f);			// Top Right Of The Quad (Right)
-		glVertex3f( 1.0f, 1.0f, 1.0f);			// Top Left Of The Quad (Right)
-		glVertex3f( 1.0f,-1.0f, 1.0f);			// Bottom Left Of The Quad (Right)
-		glVertex3f( 1.0f,-1.0f,-1.0f);			// Bottom Right Of The Quad (Right)
+	//faccia in basso
+	glNormal3f(0.0f, -1.0f, 0.0f);
+	glVertex3f(-c,-c,-c);
+	glVertex3f(-c,-c, c);
+	glVertex3f( c,-c, c);
+	glVertex3f( c,-c,-c);
+	
+	//faccia in alto
+	glNormal3f( 0.0f,1.0f, 0.0f);
+	glVertex3f(-c, c,-c);
+	glVertex3f( c, c,-c);
+	glVertex3f( c, c, c);
+	glVertex3f(-c, c, c);
+	
+	//faccia davanti
+	glNormal3f( 0.0f, 0.0f, 1.0f);
+	glVertex3f(-c, c, c);
+	glVertex3f( c, c, c);
+	glVertex3f( c,-c, c);
+	glVertex3f(-c,-c, c);
+	
+	//faccia dietro
+	glNormal3f( 0.0f, 0.0f,-1.0f);
+	glVertex3f(-c, c,-c);
+	glVertex3f(-c,-c,-c);
+	glVertex3f( c,-c,-c);
+	glVertex3f( c, c,-c);
+	
+	//faccia sinistra
+	glNormal3f( -1.0f, 0.0f, 0.0f);
+	glVertex3f(-c, c, c);
+	glVertex3f(-c,-c, c);
+	glVertex3f(-c,-c,-c);
+	glVertex3f(-c, c,-c);
+	
+	//faccia destra
+	glNormal3f(1.0f, 0.0f, 0.0f);
+	glVertex3f( c, c,-c);
+	glVertex3f( c,-c,-c);
+	glVertex3f( c,-c, c);
+	glVertex3f( c, c, c);
 	glEnd();
 }
 
@@ -669,13 +630,13 @@ CUTBoolean loadOBJ(const char* path, Solid* model)
 
 void drawSolid(Solid* model)
 {
-	glMaterialfv(GL_FRONT, GL_AMBIENT, model->ambient);
-	glMaterialfv(GL_FRONT, GL_DIFFUSE, model->diffuse);
-	glMaterialfv(GL_FRONT, GL_SPECULAR, model->specular);
-	glMaterialf(GL_FRONT, GL_SHININESS, model->shininess);
+//	glMaterialfv(GL_FRONT, GL_AMBIENT, model->ambient);
+//	glMaterialfv(GL_FRONT, GL_DIFFUSE, model->diffuse);
+//	glMaterialfv(GL_FRONT, GL_SPECULAR, model->specular);
+//	glMaterialf(GL_FRONT, GL_SHININESS, model->shininess);
 	
-	glEnable(GL_TEXTURE_2D);
-	glBindTexture(GL_TEXTURE_2D, model->textureId);
+//	glEnable(GL_TEXTURE_2D);
+//	glBindTexture(GL_TEXTURE_2D, model->textureId);
 	
 	glBegin(GL_TRIANGLES);
 	
@@ -868,4 +829,88 @@ float surfelArea(Vertex* v)
 	} while (hedge != v->he);
 	
 	return area_sum * .3333333333f;
+}
+
+CUTBoolean preprocessing(int argc, char** argv)
+{
+	// load poly mesh
+	string mesh_dir, mesh_name, obj_path;
+	char** mesh_cname;
+	
+	mesh_cname = (char**) malloc(sizeof(char));
+	h_imesh = (Solid*) malloc(sizeof(Solid));
+	
+	mesh_dir = "/Developer/GPU Computing/C/src/pbrSurfelsCloud/polyModels/";
+	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "mesh")) {
+		cutGetCmdLineArgumentstr( argc, (const char**)argv, "mesh", mesh_cname);
+	} else {
+		cout << "Please, specify a valid OBJ filename passed as command-line argument!\nSYNTAX:\n--mesh=filename.obj" << endl;
+		return CUTFalse;
+	}
+	mesh_name = *mesh_cname;
+	obj_path = mesh_dir + mesh_name;
+	if ( !loadOBJ(obj_path.c_str(), h_imesh) )
+	{
+		cout << "File \"" << mesh_name << "\" not found!" << endl;
+		return CUTFalse;
+	}
+	free(mesh_cname);
+	
+	// winged-edge structure creation
+	createHalfedgeList(h_imesh);
+	
+	// calculate face area (offline)
+	faceArea(h_imesh);
+	
+	// create point cloud
+	vector<Surfel> pointCloud;
+	Surfel point;
+	vector<float3> vnorm;
+	float3 normal;
+	
+	for (unsigned int i=0; i < h_imesh->v.size(); i++) {
+		point.pos = h_imesh->v[i].pos;
+		
+		// averaging vertex normals
+		vnorm.clear();
+		for (unsigned int j=0; j < h_imesh->f.size(); j++) {
+			if (h_imesh->f[j].v.x-1 == i) {
+				normal = h_imesh->vn[ h_imesh->f[j].n.x-1 ];
+				vnorm.push_back( normal );
+			} else if (h_imesh->f[j].v.y-1 == i) {
+				normal = h_imesh->vn[ h_imesh->f[j].n.y-1 ];
+				vnorm.push_back( normal );
+			} else if (h_imesh->f[j].v.z-1 == i) {
+				normal = h_imesh->vn[ h_imesh->f[j].n.z-1 ];
+				vnorm.push_back( normal );
+			}
+		}
+		normal = normalsAverage( vnorm);
+		point.normal = normalizeVector( normal);
+		
+		// calculate surfel area
+		point.area = surfelArea( &h_imesh->v[i]);
+		
+		pointCloud.push_back( point );
+	}
+	
+//	for (unsigned int i=0; i < pointCloud.size(); i++) {
+//		printf("surfel %u:\t( %12g , %12g , %12g )   ||   normal( %12g , %12g , %12g )   ||   area: %g\n",
+//			   i, pointCloud[i].pos.x, pointCloud[i].pos.y, pointCloud[i].pos.z,
+//			   pointCloud[i].normal.x, pointCloud[i].normal.y, pointCloud[i].normal.z, pointCloud[i].area);
+//	}
+	
+	return CUTTrue;
+}
+
+void setLighting()
+{
+	glFrontFace(GL_CCW);
+	glCullFace(GL_BACK);
+	glColorMaterial(GL_FRONT, GL_DIFFUSE);
+	glShadeModel(GL_SMOOTH);
+	
+	glEnable(GL_CULL_FACE);
+	glEnable(GL_COLOR_MATERIAL);
+	glEnable(GL_LIGHT0);
 }

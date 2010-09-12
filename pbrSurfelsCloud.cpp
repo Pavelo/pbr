@@ -33,6 +33,13 @@
 
 using namespace std;
 
+// definitions
+#define PI 3.14159265358979323846f
+#define POLY_CUBE 0
+#define POLYS 1
+#define SURFELS 2
+#define POINTS 3
+
 ////////////////////////////////////////////////////////////////////////////////
 // data structures
 typedef struct _Vertex    Vertex;
@@ -87,6 +94,7 @@ struct _Surfel {
 	float3 pos;
 	float3 normal;
 	float area;
+	float radius;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -127,8 +135,6 @@ Halfedge* findTwin( Halfedge* hedge, Solid* s);
 float halfedgeLength( Vertex* v1, Vertex* v2);
 float semiperimeter( vector<float> length);
 CUTBoolean faceArea( Solid* s);
-float magnitude( float3 vec);
-float3 normalizeVector( float3 vec);
 float3 normalsAverage( vector<float3> normals);
 float surfelArea( Vertex* v);
 CUTBoolean preprocessing( int argc, char** argv);
@@ -137,10 +143,14 @@ void cleanup();
 void setLighting();
 
 // GL functionality
-CUTBoolean initGL(int argc, char** argv);
+CUTBoolean initGL( int argc, char** argv);
+CUTBoolean loadOBJ( const char* path, Solid* model);
 void drawCube( float size);
-CUTBoolean loadOBJ(const char* path, Solid* model);
-void drawSolid(Solid* model);
+void drawSolid( Solid* model);
+void drawPointCloud( vector<Surfel> &cloud);
+void drawSurfel( Surfel* sf);
+void drawPoint( Surfel* sf);
+void drawCircle( float radius);
 
 // rendering callbacks
 void display();
@@ -152,9 +162,19 @@ void motion(int x, int y);
 void runCuda();
 void runAutoTest();
 
+// utilities
+float magnitude( float3 vec);
+float3 normalizeVector( float3 vec);
+float dotProduct( float3 v1, float3 v2);
+float3 crossProduct( float3 v1, float3 v2);
+
+// global variables
 Solid* h_imesh;
 Solid* h_omesh;
-
+vector<Surfel> pointCloud;
+int slices;
+float theta;
+unsigned int view_model = SURFELS;
 int counter=0;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -374,10 +394,24 @@ void display()
     glRotatef(rotate_x, 1.0, 0.0, 0.0);
     glRotatef(rotate_y, 0.0, 1.0, 0.0);
 
-// 	drawCube(1.f);
-	
-	drawSolid(h_imesh);
-	
+	switch (view_model) {
+		case POLYS:
+			drawSolid(h_imesh);
+			break;
+
+		case SURFELS:
+		case POINTS:
+			drawPointCloud(pointCloud);
+			break;
+
+		case POLY_CUBE:
+			drawCube(1.5f);
+			break;
+
+		default:
+			break;
+	}
+
     glutSwapBuffers();
     glutPostRedisplay();
 
@@ -405,11 +439,36 @@ void cleanup()
 void keyboard(unsigned char key, int /*x*/, int /*y*/)
 {
     switch(key) {
-    case 27 :
-    case 'q' :
-    case 'Q' :
-        exit(0);
-        break;
+
+	// quit application
+		case 27 :
+		case 'q' :
+		case 'Q' :
+			exit(0);
+			break;
+			
+	// pretty useless polygonal cube
+		case '0':
+			view_model = POLY_CUBE;
+			break;
+
+	// polygonal view
+		case '1':
+			view_model = POLYS;
+			break;
+			
+	// surfel view
+		case '2':
+			view_model = SURFELS;
+			break;
+			
+	// point view
+		case '3':
+			view_model = POINTS;
+			break;
+
+		default:
+			break;
     }
 }
 
@@ -448,7 +507,10 @@ void motion(int x, int y)
 
 void drawCube(float size)
 {
+	glFrontFace(GL_CW);
+	
 	float c = size*0.5f;
+	
 	glBegin(GL_QUADS);
 	//faccia in basso
 	glNormal3f(0.0f, -1.0f, 0.0f);
@@ -492,6 +554,8 @@ void drawCube(float size)
 	glVertex3f( c,-c, c);
 	glVertex3f( c, c, c);
 	glEnd();
+	
+	glFrontFace(GL_CCW);
 }
 
 CUTBoolean loadOBJ(const char* path, Solid* model)
@@ -863,7 +927,6 @@ CUTBoolean preprocessing(int argc, char** argv)
 	faceArea(h_imesh);
 	
 	// create point cloud
-	vector<Surfel> pointCloud;
 	Surfel point;
 	vector<float3> vnorm;
 	float3 normal;
@@ -888,8 +951,9 @@ CUTBoolean preprocessing(int argc, char** argv)
 		normal = normalsAverage( vnorm);
 		point.normal = normalizeVector( normal);
 		
-		// calculate surfel area
+		// calculate surfel area and radius
 		point.area = surfelArea( &h_imesh->v[i]);
+		point.radius = sqrt( point.area / PI );
 		
 		pointCloud.push_back( point );
 	}
@@ -899,6 +963,16 @@ CUTBoolean preprocessing(int argc, char** argv)
 //			   i, pointCloud[i].pos.x, pointCloud[i].pos.y, pointCloud[i].pos.z,
 //			   pointCloud[i].normal.x, pointCloud[i].normal.y, pointCloud[i].normal.z, pointCloud[i].area);
 //	}
+	
+	// calculate theta angle of the slices of circle for surfel representation
+	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "surfel_slices")) {
+		cutGetCmdLineArgumenti( argc, (const char**)argv, "surfel_slices", &slices);
+	} else {
+		slices = 12;
+	}
+	slices = (slices < 4 ) ? 4  : slices;
+	slices = (slices > 32) ? 32 : slices;
+	theta = 2*PI / (float)slices;
 	
 	return CUTTrue;
 }
@@ -914,3 +988,67 @@ void setLighting()
 	glEnable(GL_COLOR_MATERIAL);
 	glEnable(GL_LIGHT0);
 }
+
+void drawPointCloud(vector<Surfel> &cloud)
+{
+	for (unsigned int i=0; i < cloud.size(); i++) {
+		if (view_model == SURFELS) {
+			drawSurfel( &cloud[i]);
+		} else if (view_model == POINTS) {
+			drawPoint( &cloud[i]);
+		}
+	}
+}
+
+void drawSurfel(Surfel* sf)
+{
+	glPushMatrix();
+		glTranslatef( sf->pos.x, sf->pos.y, sf->pos.z );
+//	TODO:
+//		glRotatef( /* ??? */.0f, sf->normal.x, sf->normal.y, sf->normal.z );
+		glNormal3f( sf->normal.x, sf->normal.y, sf->normal.z );
+		drawCircle( sf->radius );
+	glPopMatrix();
+}
+
+void drawCircle(float radius)
+{
+	glBegin(GL_TRIANGLES);
+	for (int i=0; i < slices; i++) {
+		glVertex3f( .0f, .0f, .0f );
+		glVertex3f( radius * cos( i * theta ), radius * sin( i * theta ), .0f );
+		glVertex3f( radius * cos( (i+1) * theta ), radius * sin( (i+1) * theta ), .0f );
+	}
+	glEnd();
+}
+
+void drawPoint(Surfel* sf)
+{
+	glDisable(GL_LIGHTING);
+	
+	glBegin(GL_POINTS);
+	glVertex3f( sf->pos.x, sf->pos.y, sf->pos.z );
+	glEnd();
+	
+	glEnable(GL_LIGHTING);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -36,9 +36,9 @@ using namespace std;
 // definitions
 #define PI 3.14159265358979323846f
 #define POLY_CUBE 0
-#define POLYS 1
-#define SURFELS 2
-#define POINTS 3
+#define POLYS     1
+#define SURFELS   2
+#define POINTS    3
 
 ////////////////////////////////////////////////////////////////////////////////
 // data structures
@@ -94,7 +94,9 @@ struct _Surfel {
 	float3 pos;
 	float3 normal;
 	float area;
-	float radius;
+	float radius;       // radius of a circle with this surfel area (for displaying purpose)
+	float phi;          // angle between initial normal and actual normal (for displaying purpose)
+	float3 rot_axis;    // roation axis needed to correctly orient the surfel representation
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -108,7 +110,7 @@ float anim = 0.0;
 int mouse_old_x, mouse_old_y;
 int mouse_buttons = 0;
 float rotate_x = 0.0, rotate_y = 0.0;
-float translate_z = -3.0;
+float translate_z = -10.0;
 
 unsigned int timer = 0;
 
@@ -163,6 +165,8 @@ void runCuda();
 void runAutoTest();
 
 // utilities
+float rad( float deg);
+float deg( float rad);
 float magnitude( float3 vec);
 float3 normalizeVector( float3 vec);
 float dotProduct( float3 v1, float3 v2);
@@ -251,7 +255,7 @@ CUTBoolean initGL(int argc, char **argv)
     }
 
     // default initialization
-    glClearColor(0.0, 0.0, 0.0, 1.0);
+    glClearColor(0.1, .3, .3, 1.0);
     glEnable(GL_DEPTH_TEST);
 
     // viewport
@@ -930,6 +934,7 @@ CUTBoolean preprocessing(int argc, char** argv)
 	Surfel point;
 	vector<float3> vnorm;
 	float3 normal;
+	float3 zeta = make_float3( 0,0,1 );
 	
 	for (unsigned int i=0; i < h_imesh->v.size(); i++) {
 		point.pos = h_imesh->v[i].pos;
@@ -954,6 +959,11 @@ CUTBoolean preprocessing(int argc, char** argv)
 		// calculate surfel area and radius
 		point.area = surfelArea( &h_imesh->v[i]);
 		point.radius = sqrt( point.area / PI );
+		
+		// rotation angle and axis to draw surfel
+		point.phi = deg( acos( dotProduct( zeta, normal)));
+		point.rot_axis = crossProduct( zeta, normal);
+		printf("glRotate( %10g, %10g, %10g, %10g )\n",point.phi,point.rot_axis.x,point.rot_axis.y,point.rot_axis.z);
 		
 		pointCloud.push_back( point );
 	}
@@ -1004,9 +1014,7 @@ void drawSurfel(Surfel* sf)
 {
 	glPushMatrix();
 		glTranslatef( sf->pos.x, sf->pos.y, sf->pos.z );
-//	TODO:
-//		glRotatef( /* ??? */.0f, sf->normal.x, sf->normal.y, sf->normal.z );
-		glNormal3f( sf->normal.x, sf->normal.y, sf->normal.z );
+		glRotatef( sf->phi, sf->rot_axis.x, sf->rot_axis.y, sf->rot_axis.z );
 		drawCircle( sf->radius );
 	glPopMatrix();
 }
@@ -1015,6 +1023,7 @@ void drawCircle(float radius)
 {
 	glBegin(GL_TRIANGLES);
 	for (int i=0; i < slices; i++) {
+		glNormal3f( .0f ,.0f, 1.f );
 		glVertex3f( .0f, .0f, .0f );
 		glVertex3f( radius * cos( i * theta ), radius * sin( i * theta ), .0f );
 		glVertex3f( radius * cos( (i+1) * theta ), radius * sin( (i+1) * theta ), .0f );
@@ -1033,14 +1042,25 @@ void drawPoint(Surfel* sf)
 	glEnable(GL_LIGHTING);
 }
 
+float dotProduct(float3 v1, float3 v2)
+{
+	return v1.x*v2.x + v1.y*v2.y + v1.z*v2.z;
+}
 
+float3 crossProduct(float3 v1, float3 v2)
+{
+	return make_float3( v1.y*v2.z - v1.z*v2.y, v1.z*v2.x - v1.x*v2.z, v1.x*v2.y - v1.y*v2.x );
+}
 
+float deg(float rad)
+{
+	return rad * 180.f / PI;
+}
 
-
-
-
-
-
+float rad(float deg)
+{
+	return deg * PI / 180.f;
+}
 
 
 

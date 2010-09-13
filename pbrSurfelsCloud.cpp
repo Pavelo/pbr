@@ -104,15 +104,22 @@ struct _Surfel {
 const unsigned int window_width = 512;
 const unsigned int window_height = 512;
 
+// global variables
+unsigned int timer = 0;
 float anim = 0.0;
+Solid* h_imesh;
+Solid* h_omesh;
+vector<Surfel> pointCloud;
+int slices;
+float theta;
+unsigned int view_model = POLYS;
+int counter = 0;
 
 // mouse controls
 int mouse_old_x, mouse_old_y;
 int mouse_buttons = 0;
 float rotate_x = 0.0, rotate_y = 0.0;
 float translate_z = -10.0;
-
-unsigned int timer = 0;
 
 // Auto-Verification Code
 const int frameCheckNumber = 4;
@@ -143,6 +150,7 @@ CUTBoolean preprocessing( int argc, char** argv);
 CUTBoolean run( int argc, char** argv);
 void cleanup();
 void setLighting();
+CUTBoolean savePointCloud(vector<Surfel> &pc, const char* path);
 
 // GL functionality
 CUTBoolean initGL( int argc, char** argv);
@@ -171,15 +179,6 @@ float magnitude( float3 vec);
 float3 normalizeVector( float3 vec);
 float dotProduct( float3 v1, float3 v2);
 float3 crossProduct( float3 v1, float3 v2);
-
-// global variables
-Solid* h_imesh;
-Solid* h_omesh;
-vector<Surfel> pointCloud;
-int slices;
-float theta;
-unsigned int view_model = SURFELS;
-int counter=0;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Program main
@@ -471,6 +470,12 @@ void keyboard(unsigned char key, int /*x*/, int /*y*/)
 			view_model = POINTS;
 			break;
 
+	// press space to reset camera view
+		case 32:
+			rotate_x = rotate_y = 0.0;
+			translate_z = -10.0;
+			break;
+
 		default:
 			break;
     }
@@ -739,11 +744,11 @@ void drawSolid(Solid* model)
 CUTBoolean createHalfedgeList(Solid* s)
 {
 	if ( s->v.empty() || s->f.empty()) {
-		cout << "vertex list or face list is empty!" << endl;
+		cerr << "vertex list or face list is empty!" << endl;
 		return CUTFalse;
 	}
 	if ( !s->he.empty()) {
-		cout << "half-edge list already exists!" << endl;
+		cerr << "half-edge list already exists!" << endl;
 		return CUTFalse;
 	}
 	
@@ -902,27 +907,27 @@ float surfelArea(Vertex* v)
 CUTBoolean preprocessing(int argc, char** argv)
 {
 	// load poly mesh
-	string mesh_dir, mesh_name, obj_path;
-	char** mesh_cname;
+	string dir, filename, path;
+	char** cfilename;
 	
-	mesh_cname = (char**) malloc(sizeof(char));
+	cfilename = (char**) malloc(sizeof(char));
 	h_imesh = (Solid*) malloc(sizeof(Solid));
 	
-	mesh_dir = "/Developer/GPU Computing/C/src/pbrSurfelsCloud/polyModels/";
+	dir = "/Developer/GPU Computing/C/src/pbrSurfelsCloud/polyModels/";
 	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "mesh")) {
-		cutGetCmdLineArgumentstr( argc, (const char**)argv, "mesh", mesh_cname);
+		cutGetCmdLineArgumentstr( argc, (const char**)argv, "mesh", cfilename);
 	} else {
-		cout << "Please, specify a valid OBJ filename passed as command-line argument!\nSYNTAX:\n--mesh=filename.obj" << endl;
+		cerr << "Please, specify a valid OBJ filename passed as command-line argument!\nSYNTAX:\n--mesh=filename.obj" << endl;
 		return CUTFalse;
 	}
-	mesh_name = *mesh_cname;
-	obj_path = mesh_dir + mesh_name;
-	if ( !loadOBJ(obj_path.c_str(), h_imesh) )
+	filename = *cfilename;
+	path = dir + filename;
+	if ( !loadOBJ(path.c_str(), h_imesh) )
 	{
-		cout << "File \"" << mesh_name << "\" not found!" << endl;
+		cerr << "File \"" << filename << "\" not found!" << endl;
 		return CUTFalse;
 	}
-	free(mesh_cname);
+	free(cfilename);
 	
 	// winged-edge structure creation
 	createHalfedgeList(h_imesh);
@@ -963,16 +968,16 @@ CUTBoolean preprocessing(int argc, char** argv)
 		// rotation angle and axis to draw surfel
 		point.phi = deg( acos( dotProduct( zeta, normal)));
 		point.rot_axis = crossProduct( zeta, normal);
-		printf("glRotate( %10g, %10g, %10g, %10g )\n",point.phi,point.rot_axis.x,point.rot_axis.y,point.rot_axis.z);
+//		printf("glRotate( %10g, %10g, %10g, %10g )\n",point.phi,point.rot_axis.x,point.rot_axis.y,point.rot_axis.z);
 		
 		pointCloud.push_back( point );
 	}
 	
-//	for (unsigned int i=0; i < pointCloud.size(); i++) {
-//		printf("surfel %u:\t( %12g , %12g , %12g )   ||   normal( %12g , %12g , %12g )   ||   area: %g\n",
-//			   i, pointCloud[i].pos.x, pointCloud[i].pos.y, pointCloud[i].pos.z,
-//			   pointCloud[i].normal.x, pointCloud[i].normal.y, pointCloud[i].normal.z, pointCloud[i].area);
-//	}
+	for (unsigned int i=0; i < pointCloud.size(); i++) {
+		printf("surfel %u:\t( %12g , %12g , %12g )   ||   normal( %12g , %12g , %12g )   ||   area: %g\n",
+			   i, pointCloud[i].pos.x, pointCloud[i].pos.y, pointCloud[i].pos.z,
+			   pointCloud[i].normal.x, pointCloud[i].normal.y, pointCloud[i].normal.z, pointCloud[i].area);
+	}
 	
 	// calculate theta angle of the slices of circle for surfel representation
 	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "surfel_slices")) {
@@ -983,6 +988,23 @@ CUTBoolean preprocessing(int argc, char** argv)
 	slices = (slices < 4 ) ? 4  : slices;
 	slices = (slices > 32) ? 32 : slices;
 	theta = 2*PI / (float)slices;
+	
+	// save point cloud on file
+	int save;
+	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "save_cloud")) {
+		cutGetCmdLineArgumenti( argc, (const char**)argv, "save_cloud", &save );
+	} else {
+		save = 0;
+	}
+	
+	if (save) {
+		dir = "/Developer/GPU Computing/C/src/pbrSurfelsCloud/pointClouds/";
+		filename.replace( filename.length()-4, filename.length(), ".sfc" );
+		path = dir + filename;
+		
+		savePointCloud( pointCloud, path.c_str());
+	}
+	
 	
 	return CUTTrue;
 }
@@ -1061,6 +1083,60 @@ float rad(float deg)
 {
 	return deg * PI / 180.f;
 }
+
+CUTBoolean savePointCloud(vector<Surfel> &pc, const char* path)
+{
+	ofstream file;
+	string line;
+	
+	file.open(path);
+	
+	if (file.is_open()) {
+		line = "";
+		
+		file << "SFC" << endl;
+		file << pc.size() << endl;
+		for (unsigned int i=0; i < pc.size(); i++) {
+			file << pc[i].pos.x<<" "<<pc[i].pos.y<<" "<<pc[i].pos.z << endl;
+		}
+		for (unsigned int i=0; i < pc.size(); i++) {
+			file << pc[i].normal.x<<" "<<pc[i].normal.y<<" "<<pc[i].normal.z << endl;
+		}
+		for (unsigned int i=0; i < pc.size(); i++) {
+			file << pc[i].area<<" "<<pc[i].radius<<" "<<pc[i].phi << endl;
+		}
+		for (unsigned int i=0; i < pc.size(); i++) {
+			file << pc[i].rot_axis.x<<" "<<pc[i].rot_axis.y<<" "<<pc[i].rot_axis.z << endl;
+		}
+		
+	} else {
+		cerr << "Error opening file \"" << path << "\"" << endl;
+		return CUTFalse;
+	}
+
+	file.close();
+	
+	cout << "Surfels cloud saved correctly" << endl;
+
+	return CUTTrue;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

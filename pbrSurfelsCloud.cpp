@@ -150,7 +150,9 @@ CUTBoolean preprocessing( int argc, char** argv);
 CUTBoolean run( int argc, char** argv);
 void cleanup();
 void setLighting();
-CUTBoolean savePointCloud(vector<Surfel> &pc, const char* path);
+CUTBoolean createPointCloud( Solid* mesh, vector<Surfel> &pc);
+CUTBoolean savePointCloud( vector<Surfel> &pc, const char* path);
+CUTBoolean loadPointCloud( const char* path, vector<Surfel> &pc);
 
 // GL functionality
 CUTBoolean initGL( int argc, char** argv);
@@ -907,7 +909,7 @@ float surfelArea(Vertex* v)
 CUTBoolean preprocessing(int argc, char** argv)
 {
 	// load poly mesh
-	string dir, filename, path;
+	string dir, filename, path, msg;
 	char** cfilename;
 	
 	cfilename = (char**) malloc(sizeof(char));
@@ -927,7 +929,6 @@ CUTBoolean preprocessing(int argc, char** argv)
 		cerr << "File \"" << filename << "\" not found!" << endl;
 		return CUTFalse;
 	}
-	free(cfilename);
 	
 	// winged-edge structure creation
 	createHalfedgeList(h_imesh);
@@ -935,50 +936,54 @@ CUTBoolean preprocessing(int argc, char** argv)
 	// calculate face area (offline)
 	faceArea(h_imesh);
 	
-	// create point cloud
-	Surfel point;
-	vector<float3> vnorm;
-	float3 normal;
-	float3 zeta = make_float3( 0,0,1 );
-	
-	for (unsigned int i=0; i < h_imesh->v.size(); i++) {
-		point.pos = h_imesh->v[i].pos;
-		
-		// averaging vertex normals
-		vnorm.clear();
-		for (unsigned int j=0; j < h_imesh->f.size(); j++) {
-			if (h_imesh->f[j].v.x-1 == i) {
-				normal = h_imesh->vn[ h_imesh->f[j].n.x-1 ];
-				vnorm.push_back( normal );
-			} else if (h_imesh->f[j].v.y-1 == i) {
-				normal = h_imesh->vn[ h_imesh->f[j].n.y-1 ];
-				vnorm.push_back( normal );
-			} else if (h_imesh->f[j].v.z-1 == i) {
-				normal = h_imesh->vn[ h_imesh->f[j].n.z-1 ];
-				vnorm.push_back( normal );
-			}
+	// create or load point cloud
+	dir = "/Developer/GPU Computing/C/src/pbrSurfelsCloud/pointClouds/";
+	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "cloud_forced")) {
+		cutGetCmdLineArgumentstr( argc, (const char**)argv, "cloud_forced", cfilename );
+		filename = *cfilename;
+		path = dir + filename;
+
+		if ( !loadPointCloud(path.c_str(), pointCloud)) {
+			do {
+				cout << "File \"" << filename << "\" does not exist! Create it? ";
+				getline(cin, msg);
+				
+				if (msg[0] == 'y' || msg[0] == 'Y') {
+					cout << "Creating surfels cloud..." << endl;
+					createPointCloud( h_imesh, pointCloud);
+					cout << "Saving it to \"" << filename << "\"..." << endl;
+					savePointCloud( pointCloud, path.c_str());
+				} else if (msg[0] == 'n' || msg[0] == 'N') {
+					cerr << "Cannot load any surfel cloud. Aborting..." << endl;
+					return CUTFalse;
+				} else {
+					cout << "Answer with 'yes' or 'no'. ";
+				}
+			} while (msg.find_first_of("ynYN") != 0);
+		} else {
+			cout << "\"" << filename << "\" loaded correctly" << endl;
 		}
-		normal = normalsAverage( vnorm);
-		point.normal = normalizeVector( normal);
+	} else {
+		filename.replace( filename.length()-4, filename.length(), ".sfc" );
+		path = dir + filename;
 		
-		// calculate surfel area and radius
-		point.area = surfelArea( &h_imesh->v[i]);
-		point.radius = sqrt( point.area / PI );
-		
-		// rotation angle and axis to draw surfel
-		point.phi = deg( acos( dotProduct( zeta, normal)));
-		point.rot_axis = crossProduct( zeta, normal);
-//		printf("glRotate( %10g, %10g, %10g, %10g )\n",point.phi,point.rot_axis.x,point.rot_axis.y,point.rot_axis.z);
-		
-		pointCloud.push_back( point );
+		if ( !loadPointCloud( path.c_str(), pointCloud)) {
+			cout << "Creating surfels cloud..." << endl;
+			createPointCloud( h_imesh, pointCloud);
+			cout << "Saving it to \"" << filename << "\"..." << endl;
+			savePointCloud( pointCloud, path.c_str());
+		} else {
+			cout << "\"" << filename << "\" loaded correctly" << endl;
+		}
+
 	}
-	
-	for (unsigned int i=0; i < pointCloud.size(); i++) {
-		printf("surfel %u:\t( %12g , %12g , %12g )   ||   normal( %12g , %12g , %12g )   ||   area: %g\n",
-			   i, pointCloud[i].pos.x, pointCloud[i].pos.y, pointCloud[i].pos.z,
-			   pointCloud[i].normal.x, pointCloud[i].normal.y, pointCloud[i].normal.z, pointCloud[i].area);
-	}
-	
+
+//	for (unsigned int i=0; i < pointCloud.size(); i++) {
+//		printf("surfel %u:\t( %12g , %12g , %12g )   ||   normal( %12g , %12g , %12g )   ||   area: %g\n",
+//			   i, pointCloud[i].pos.x, pointCloud[i].pos.y, pointCloud[i].pos.z,
+//			   pointCloud[i].normal.x, pointCloud[i].normal.y, pointCloud[i].normal.z, pointCloud[i].area);
+//	}
+
 	// calculate theta angle of the slices of circle for surfel representation
 	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "surfel_slices")) {
 		cutGetCmdLineArgumenti( argc, (const char**)argv, "surfel_slices", &slices);
@@ -989,22 +994,7 @@ CUTBoolean preprocessing(int argc, char** argv)
 	slices = (slices > 32) ? 32 : slices;
 	theta = 2*PI / (float)slices;
 	
-	// save point cloud on file
-	int save;
-	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "save_cloud")) {
-		cutGetCmdLineArgumenti( argc, (const char**)argv, "save_cloud", &save );
-	} else {
-		save = 0;
-	}
-	
-	if (save) {
-		dir = "/Developer/GPU Computing/C/src/pbrSurfelsCloud/pointClouds/";
-		filename.replace( filename.length()-4, filename.length(), ".sfc" );
-		path = dir + filename;
-		
-		savePointCloud( pointCloud, path.c_str());
-	}
-	
+	free(cfilename);
 	
 	return CUTTrue;
 }
@@ -1118,6 +1108,102 @@ CUTBoolean savePointCloud(vector<Surfel> &pc, const char* path)
 	
 	cout << "Surfels cloud saved correctly" << endl;
 
+	return CUTTrue;
+}
+
+CUTBoolean createPointCloud(Solid* mesh, vector<Surfel> &pc)
+{
+	Surfel point;
+	vector<float3> vnorm;
+	float3 normal;
+	float3 zeta = make_float3( 0,0,1 );
+	
+	for (unsigned int i=0; i < mesh->v.size(); i++) {
+		point.pos = mesh->v[i].pos;
+		
+		// averaging vertex normals
+		vnorm.clear();
+		for (unsigned int j=0; j < mesh->f.size(); j++) {
+			if (mesh->f[j].v.x-1 == i) {
+				normal = mesh->vn[ mesh->f[j].n.x-1 ];
+				vnorm.push_back( normal );
+			} else if (mesh->f[j].v.y-1 == i) {
+				normal = mesh->vn[ mesh->f[j].n.y-1 ];
+				vnorm.push_back( normal );
+			} else if (mesh->f[j].v.z-1 == i) {
+				normal = mesh->vn[ mesh->f[j].n.z-1 ];
+				vnorm.push_back( normal );
+			}
+		}
+		normal = normalsAverage( vnorm);
+		point.normal = normalizeVector( normal);
+		
+		// calculate surfel area and radius
+		point.area = surfelArea( &mesh->v[i]);
+		point.radius = sqrt( point.area / PI );
+		
+		// rotation angle and axis to draw surfel
+		point.phi = deg( acos( dotProduct( zeta, normal)));
+		point.rot_axis = crossProduct( zeta, normal);
+		//		printf("glRotate( %10g, %10g, %10g, %10g )\n",point.phi,point.rot_axis.x,point.rot_axis.y,point.rot_axis.z);
+		
+		pc.push_back( point );
+	}
+	
+	
+	return CUTTrue;
+}
+
+CUTBoolean loadPointCloud(const char* path, vector<Surfel> &pc)
+{
+	string s_line;
+	const char* line;
+	unsigned int n_surfels;
+	
+	ifstream file(path);
+	
+	if (file.is_open())
+	{
+		getline(file, s_line);
+		if (s_line == "SFC")
+		{
+			getline(file, s_line);
+			n_surfels = atoi(s_line.c_str());
+		}
+		else {
+			return CUTFalse;
+		}
+		pc.clear();
+		pc.resize(n_surfels);
+		for (unsigned int i=0; i < n_surfels; i++)
+		{
+			getline(file, s_line);
+			line = s_line.c_str();
+			sscanf( line, "%g %g %g", &pc[i].pos.x, &pc[i].pos.y, &pc[i].pos.z);
+		}
+		for (unsigned int i=0; i < n_surfels; i++)
+		{
+			getline(file, s_line);
+			line = s_line.c_str();
+			sscanf( line, "%g %g %g", &pc[i].normal.x, &pc[i].normal.y, &pc[i].normal.z);
+		}
+		for (unsigned int i=0; i < n_surfels; i++)
+		{
+			getline(file, s_line);
+			line = s_line.c_str();
+			sscanf( line, "%g %g %g", &pc[i].area, &pc[i].radius, &pc[i].phi);
+		}
+		for (unsigned int i=0; i < n_surfels; i++)
+		{
+			getline(file, s_line);
+			line = s_line.c_str();
+			sscanf( line, "%g %g %g", &pc[i].rot_axis.x, &pc[i].rot_axis.y, &pc[i].rot_axis.z);
+		}
+	} else {
+		return CUTFalse;
+	}
+
+	
 	return CUTTrue;
 }
 

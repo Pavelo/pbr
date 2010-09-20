@@ -57,6 +57,7 @@ struct _Vertex
 struct _Halfedge
 {
 	Vertex* vert;		// vertex at the beginning of the half-edge
+	float3* vn;			// vertex normal of the face the half-edge belongs to
 	Face* face;			// face bordered by the half-edge
 	Halfedge* twin;		// the half-edge adjacent and opposed
 	Halfedge* next;		// next half-edge along the same face
@@ -139,18 +140,19 @@ extern "C" void faceArea(int n_faces, int4* face_v_id, float3* vertex, float* fa
 
 ////////////////////////////////////////////////////////////////////////////////
 // declaration, forward
+string help();
 CUTBoolean createHalfedgeList( Solid* s);
 Halfedge* findTwin( Halfedge* hedge, Solid* s);
 float halfedgeLength( Vertex* v1, Vertex* v2);
 float semiperimeter( vector<float> length);
 CUTBoolean faceArea( Solid* s);
-float3 normalsAverage( vector<float3> normals);
 float surfelArea( Vertex* v);
+float3 getVector( Halfedge* he);
 CUTBoolean preprocessing( int argc, char** argv);
 CUTBoolean run( int argc, char** argv);
 void cleanup();
 void setLighting();
-CUTBoolean createPointCloud( Solid* mesh, vector<Surfel> &pc);
+CUTBoolean createPointCloud( Solid* s, vector<Surfel> &pc);
 CUTBoolean savePointCloud( vector<Surfel> &pc, const char* path);
 CUTBoolean loadPointCloud( const char* path, vector<Surfel> &pc);
 
@@ -181,6 +183,7 @@ float magnitude( float3 vec);
 float3 normalizeVector( float3 vec);
 float dotProduct( float3 v1, float3 v2);
 float3 crossProduct( float3 v1, float3 v2);
+float3 normalsAverage( vector<float3> normals, vector<float> weights);
 
 ////////////////////////////////////////////////////////////////////////////////
 // Program main
@@ -308,6 +311,9 @@ CUTBoolean run(int argc, char** argv)
 	
 	// things to do when the program exit
 	atexit(cleanup);
+	
+	// show help
+	cout << "Press H for help" << endl;
 	
 	// start rendering mainloop
 	glutMainLoop();
@@ -476,6 +482,12 @@ void keyboard(unsigned char key, int /*x*/, int /*y*/)
 		case 32:
 			rotate_x = rotate_y = 0.0;
 			translate_z = -10.0;
+			break;
+
+	// show help
+		case 'H':
+		case 'h':
+			cout << help();
 			break;
 
 		default:
@@ -758,17 +770,22 @@ CUTBoolean createHalfedgeList(Solid* s)
 	s->he.reserve( 3 * s->f.size());
 	for (unsigned int i=0; i < s->f.size(); i++) {
 		hedge.vert = &s->v[ s->f[i].v.x-1 ];
+		hedge.vn = &s->vn[ s->f[i].n.x-1 ];
 		hedge.face = &s->f[i];
 		s->he.push_back(hedge);
 		hedge.vert = &s->v[ s->f[i].v.y-1 ];
+		hedge.vn = &s->vn[ s->f[i].n.y-1 ];
 		hedge.face = &s->f[i];
 		s->he.push_back(hedge);
 		hedge.vert = &s->v[ s->f[i].v.z-1 ];
+		hedge.vn = &s->vn[ s->f[i].n.z-1 ];
 		hedge.face = &s->f[i];
 		s->he.push_back(hedge);
 		
 		s->f[i].he = &s->he.back();	// half-edge pointer of the face
 	}
+//	for (unsigned int i=0; i< s->he.size(); i++)
+//	printf("vn %3d: %f %f %f\n",i,s->he[i].vn->x,s->he[i].vn->y,s->he[i].vn->z);
 	
 	// find half-edge successor
 	for (unsigned int i=0; i < s->he.size(); i+=3) {
@@ -867,18 +884,19 @@ CUTBoolean faceArea(Solid* s)
 	return CUTTrue;
 }
 
-float3 normalsAverage(vector<float3> normals)
+// normalized average of a group of normals
+float3 normalsAverage(vector<float3> normals, vector<float> weights)
 {
 	float3 sum = make_float3(0,0,0);
-	float nn = normals.size();
-	
+	unsigned int nn = normals.size();
+
 	for (unsigned int i=0; i < nn; i++) {
-		sum.x += normals[i].x;
-		sum.y += normals[i].y;
-		sum.z += normals[i].z;
+		sum.x += weights[i] * normals[i].x;
+		sum.y += weights[i] * normals[i].y;
+		sum.z += weights[i] * normals[i].z;
 	}
-	
-	return make_float3( sum.x/nn, sum.y/nn, sum.z/nn);
+
+	return normalizeVector( sum);
 }
 
 float magnitude(float3 vec)
@@ -1054,11 +1072,13 @@ void drawPoint(Surfel* sf)
 	glEnable(GL_LIGHTING);
 }
 
+// dot product of NORMALIZED vectors
 float dotProduct(float3 v1, float3 v2)
 {
 	return v1.x*v2.x + v1.y*v2.y + v1.z*v2.z;
 }
 
+// cross product of NORMALIZED vectors
 float3 crossProduct(float3 v1, float3 v2)
 {
 	return make_float3( v1.y*v2.z - v1.z*v2.y, v1.z*v2.x - v1.x*v2.z, v1.x*v2.y - v1.y*v2.x );
@@ -1072,6 +1092,20 @@ float deg(float rad)
 float rad(float deg)
 {
 	return deg * PI / 180.f;
+}
+
+// Get the normalized joint vector between the two vertexes connected by the half-edge
+float3 getVector(Halfedge* he)
+{
+	float3 head, tail, res;
+	
+	tail = he->vert->pos;
+	head = he->twin->vert->pos;
+	res.x = head.x - tail.x;
+	res.y = head.y - tail.y;
+	res.z = head.z - tail.z;
+
+	return normalizeVector( res);
 }
 
 CUTBoolean savePointCloud(vector<Surfel> &pc, const char* path)
@@ -1111,41 +1145,42 @@ CUTBoolean savePointCloud(vector<Surfel> &pc, const char* path)
 	return CUTTrue;
 }
 
-CUTBoolean createPointCloud(Solid* mesh, vector<Surfel> &pc)
+CUTBoolean createPointCloud(Solid* s, vector<Surfel> &pc)
 {
 	Surfel point;
+	Halfedge* cur_he, *next_he;
 	vector<float3> vnorm;
-	float3 normal;
+	vector<float> weight;
+	float w;
 	float3 zeta = make_float3( 0,0,1 );
 	
-	for (unsigned int i=0; i < mesh->v.size(); i++) {
-		point.pos = mesh->v[i].pos;
+	for (unsigned int i=0; i < s->v.size(); i++) {
+		point.pos = s->v[i].pos;
 		
 		// averaging vertex normals
 		vnorm.clear();
-		for (unsigned int j=0; j < mesh->f.size(); j++) {
-			if (mesh->f[j].v.x-1 == i) {
-				normal = mesh->vn[ mesh->f[j].n.x-1 ];
-				vnorm.push_back( normal );
-			} else if (mesh->f[j].v.y-1 == i) {
-				normal = mesh->vn[ mesh->f[j].n.y-1 ];
-				vnorm.push_back( normal );
-			} else if (mesh->f[j].v.z-1 == i) {
-				normal = mesh->vn[ mesh->f[j].n.z-1 ];
-				vnorm.push_back( normal );
-			}
-		}
-		normal = normalsAverage( vnorm);
-		point.normal = normalizeVector( normal);
+		weight.clear();
+		cur_he = s->v[i].he;
+		do {
+			// collect vertex normals
+			vnorm.push_back( *cur_he->vn);
+			// evaluate the angle between the two edges starting from the vertex
+			next_he = cur_he->next->next->twin;
+			w = acos( dotProduct( getVector( cur_he), getVector( next_he)));
+			weight.push_back(w);
+			cur_he = next_he;
+		} while ( cur_he != s->v[i].he);
+
+		point.normal = normalsAverage( vnorm, weight);
 		
 		// calculate surfel area and radius
-		point.area = surfelArea( &mesh->v[i]);
+		point.area = surfelArea( &s->v[i]);
 		point.radius = sqrt( point.area / PI );
 		
 		// rotation angle and axis to draw surfel
-		point.phi = deg( acos( dotProduct( zeta, normal)));
-		point.rot_axis = crossProduct( zeta, normal);
-		//		printf("glRotate( %10g, %10g, %10g, %10g )\n",point.phi,point.rot_axis.x,point.rot_axis.y,point.rot_axis.z);
+		point.phi = deg( acos( dotProduct( zeta, point.normal)));
+		point.rot_axis = crossProduct( zeta, point.normal);
+//		printf("glRotate( %10g, %10g, %10g, %10g )\n",point.phi,point.rot_axis.x,point.rot_axis.y,point.rot_axis.z);
 		
 		pc.push_back( point );
 	}
@@ -1171,6 +1206,7 @@ CUTBoolean loadPointCloud(const char* path, vector<Surfel> &pc)
 			n_surfels = atoi(s_line.c_str());
 		}
 		else {
+			cerr << "Wrong file type!" << endl;
 			return CUTFalse;
 		}
 		pc.clear();
@@ -1203,11 +1239,31 @@ CUTBoolean loadPointCloud(const char* path, vector<Surfel> &pc)
 		return CUTFalse;
 	}
 
-	
+	file.close();
+
 	return CUTTrue;
 }
 
-
+string help()
+{
+	string msg;
+	
+	msg  = "--------\n";
+	msg += "Controls\n";
+	msg += "--------\n";
+	msg += "\n";
+	msg += "Keyboard:\n";
+	msg += "1        view polygonal mesh\n";
+	msg += "2        view surfel cloud representation\n";
+	msg += "3        view mesh vertexes (equivalent to surfels position)\n";
+	msg += "SPACE    reset camera view to initial values\n";
+	msg += "\n";
+	msg += "Mouse:\n";
+	msg += "primary button (hold down while dragging)      rotate object\n";
+	msg += "secondary button (hold down while dragging)    zoom-in or zoom-out\n";
+	
+	return msg;
+}
 
 
 

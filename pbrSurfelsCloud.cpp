@@ -61,6 +61,8 @@ struct _Halfedge
 	Face* face;			// face bordered by the half-edge
 	Halfedge* twin;		// the half-edge adjacent and opposed
 	Halfedge* next;		// next half-edge along the same face
+	Halfedge* prev;		// previous half-edge along the same face
+	bool border;
 	float length;
 };
 
@@ -766,32 +768,37 @@ CUTBoolean createHalfedgeList(Solid* s)
 		return CUTFalse;
 	}
 	
-	Halfedge hedge;
+	Halfedge hedge, border, *start, *current, *border_head;
 	s->he.reserve( 3 * s->f.size());
 	for (unsigned int i=0; i < s->f.size(); i++) {
 		hedge.vert = &s->v[ s->f[i].v.x-1 ];
 		hedge.vn = &s->vn[ s->f[i].n.x-1 ];
 		hedge.face = &s->f[i];
+		hedge.border = false;
 		s->he.push_back(hedge);
 		hedge.vert = &s->v[ s->f[i].v.y-1 ];
 		hedge.vn = &s->vn[ s->f[i].n.y-1 ];
 		hedge.face = &s->f[i];
+		hedge.border = false;
 		s->he.push_back(hedge);
 		hedge.vert = &s->v[ s->f[i].v.z-1 ];
 		hedge.vn = &s->vn[ s->f[i].n.z-1 ];
 		hedge.face = &s->f[i];
+		hedge.border = false;
 		s->he.push_back(hedge);
 		
 		s->f[i].he = &s->he.back();	// half-edge pointer of the face
 	}
-//	for (unsigned int i=0; i< s->he.size(); i++)
-//	printf("vn %3d: %f %f %f\n",i,s->he[i].vn->x,s->he[i].vn->y,s->he[i].vn->z);
 	
-	// find half-edge successor
+	// find half-edge successor and predecessor
 	for (unsigned int i=0; i < s->he.size(); i+=3) {
 		s->he[ i   ].next = &s->he[ i+1 ];
 		s->he[ i+1 ].next = &s->he[ i+2 ];
 		s->he[ i+2 ].next = &s->he[ i   ];
+		
+		s->he[ i   ].prev = &s->he[ i+2 ];
+		s->he[ i+1 ].prev = &s->he[ i   ];
+		s->he[ i+2 ].prev = &s->he[ i+1 ];
 	}
 	
 	// fill half-edge pointer of the vertex
@@ -802,8 +809,59 @@ CUTBoolean createHalfedgeList(Solid* s)
 	// find the half-edge adjacent and opposed to the current half-edge
 	for (unsigned int i=0; i < s->he.size(); i++) {
 		s->he[i].twin = findTwin(&s->he[i], s);
+//		if (s->he[i].twin == NULL) {
+//			cout << "shite!" << endl;
+//			return CUTFalse;
+//		}
 	}
+	
+	// build any border halfe-edge of non-manifold meshes
+	for (unsigned int i=0; i < s->v.size(); i++)
+	{
+		border_head = NULL;
+		start = current = s->v[i].he;
+		do {
+			if ( !current->twin )
+			{
+				border.border = true;
+				border.vert = current->next->vert;
+				border.face = NULL;
+				border.twin = current;
+				border.next = &s->he.back();
+				border.prev = NULL;
+				
+				s->he.push_back(border);
+				if ( border_head == NULL ) {
+					border_head = &s->he.back();
+					printf("^\n|  head border %p\n",border_head);
+				} else {
+					printf("^\n|  border %p\n",&s->he.back());
+				}
+				border_head->next = &s->he.back();
+//				printf("bh->next %p\n",border_head->next);
 
+				current->twin = &s->he.back();
+				current = current->next;
+			}
+			else {
+				current = current->twin->next;
+				cout << "o" << endl;
+			}
+		} while (current != start);
+//		start = current = &s->he.back();
+//		while ( current->border ) {
+//			current->next->prev = current;
+//			cout << current << "  ";
+//			cout << current->prev << endl;
+//			current = current->next;
+//		}
+	}
+//	current = &s->he.back();
+//	for (unsigned int i=0; i < 22; i++) {
+//		cout << current << endl;
+//		current = current->next;
+//	}
+	
 	return CUTTrue;
 }
 
@@ -832,10 +890,14 @@ float halfedgeLength(Vertex* v1, Vertex* v2)
 {
 	
 	float x_diff, y_diff, z_diff;
+	cout << "ci arrivo\n";
+	printf("%p %p\n",v1,v2);
+	printf("%f - %f\n%f - %f\n%f - %f\n",v1->pos.x,v2->pos.x,v1->pos.y,v2->pos.y,v1->pos.z,v2->pos.z);
 	
 	x_diff = v1->pos.x - v2->pos.x;
 	y_diff = v1->pos.y - v2->pos.y;
 	z_diff = v1->pos.z - v2->pos.z;
+//	cout << "dopo diff\n";
 	
 	return sqrt( x_diff*x_diff + y_diff*y_diff + z_diff*z_diff );
 }
@@ -861,10 +923,15 @@ CUTBoolean faceArea(Solid* s)
 	for (unsigned int i=0; i < s->v.size(); i++) {
 		he_temp = s->v[i].he;
 		do {
+			cout << he_temp << endl;
 			he_temp->length = halfedgeLength( he_temp->vert, he_temp->twin->vert);
+			cout << "impronato 1" << endl;
 			he_temp = he_temp->twin->next;
+			cout << "---------------------- next while" << endl;
 		} while (he_temp != s->v[i].he);
+		cout << "====================== next for" << endl;
 	}
+	cout << "after 1st for" << endl;
 	
 	// for each face calculate its area
 	for (unsigned int i=0; i < s->f.size(); i++) {
@@ -880,6 +947,7 @@ CUTBoolean faceArea(Solid* s)
 		// area is obtained with Heron's formula
 		s->f[i].area = sqrt( sp * (sp - he_length.at(0)) * (sp - he_length.at(1)) * (sp - he_length.at(2)) );
 	}
+	cout << "after 2nd for" << endl;
 	
 	return CUTTrue;
 }
@@ -1164,9 +1232,11 @@ CUTBoolean createPointCloud(Solid* s, vector<Surfel> &pc)
 		do {
 			// collect vertex normals
 			vnorm.push_back( *cur_he->vn);
-			// evaluate the angle between the two edges starting from the vertex
 			next_he = cur_he->next->next->twin;
+			// evaluate the angle between the two edges starting from the vertex
 			w = acos( dotProduct( getVector( cur_he), getVector( next_he)));
+			// multiply the angle and the face area to get the weigth
+//			w *= cur_he->face->area;
 			weight.push_back(w);
 			cur_he = next_he;
 		} while ( cur_he != s->v[i].he);

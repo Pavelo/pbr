@@ -62,7 +62,6 @@ struct _Halfedge
 	Halfedge* twin;		// the half-edge adjacent and opposed
 	Halfedge* next;		// next half-edge along the same face
 	Halfedge* prev;		// previous half-edge along the same face
-	bool border;
 	float length;
 };
 
@@ -732,15 +731,15 @@ void drawSolid(Solid* model)
 	for (unsigned int i=0; i < model->f.size(); i++)
 	{
 		glNormal3f(model->vn[model->f[i].n.x-1].x, model->vn[model->f[i].n.x-1].y, model->vn[model->f[i].n.x-1].z);
-		glTexCoord2f(model->vt[model->f[i].t.x-1].x, model->vt[model->f[i].t.x-1].y);
+//		glTexCoord2f(model->vt[model->f[i].t.x-1].x, model->vt[model->f[i].t.x-1].y);
 		glVertex3f(model->v[model->f[i].v.x-1].pos.x, model->v[model->f[i].v.x-1].pos.y, model->v[model->f[i].v.x-1].pos.z);
 		
 		glNormal3f(model->vn[model->f[i].n.y-1].x, model->vn[model->f[i].n.y-1].y, model->vn[model->f[i].n.y-1].z);
-		glTexCoord2f(model->vt[model->f[i].t.y-1].x, model->vt[model->f[i].t.y-1].y);
+//		glTexCoord2f(model->vt[model->f[i].t.y-1].x, model->vt[model->f[i].t.y-1].y);
 		glVertex3f(model->v[model->f[i].v.y-1].pos.x, model->v[model->f[i].v.y-1].pos.y, model->v[model->f[i].v.y-1].pos.z);
 		
 		glNormal3f(model->vn[model->f[i].n.z-1].x, model->vn[model->f[i].n.z-1].y, model->vn[model->f[i].n.z-1].z);
-		glTexCoord2f(model->vt[model->f[i].t.z-1].x, model->vt[model->f[i].t.z-1].y);
+//		glTexCoord2f(model->vt[model->f[i].t.z-1].x, model->vt[model->f[i].t.z-1].y);
 		glVertex3f(model->v[model->f[i].v.z-1].pos.x, model->v[model->f[i].v.z-1].pos.y, model->v[model->f[i].v.z-1].pos.z);
 		
 //		if (counter == 1)
@@ -769,22 +768,21 @@ CUTBoolean createHalfedgeList(Solid* s)
 	}
 	
 	Halfedge hedge, border, *start, *current, *border_head;
-	s->he.reserve( 3 * s->f.size());
+	s->he.reserve( 6 * s->f.size());
+	// *** number of faces is multiplied by 6 because in the worst case
+	// *** each face has 3 border half-edges in addition to its 3 ones.
 	for (unsigned int i=0; i < s->f.size(); i++) {
 		hedge.vert = &s->v[ s->f[i].v.x-1 ];
 		hedge.vn = &s->vn[ s->f[i].n.x-1 ];
 		hedge.face = &s->f[i];
-		hedge.border = false;
 		s->he.push_back(hedge);
 		hedge.vert = &s->v[ s->f[i].v.y-1 ];
 		hedge.vn = &s->vn[ s->f[i].n.y-1 ];
 		hedge.face = &s->f[i];
-		hedge.border = false;
 		s->he.push_back(hedge);
 		hedge.vert = &s->v[ s->f[i].v.z-1 ];
 		hedge.vn = &s->vn[ s->f[i].n.z-1 ];
 		hedge.face = &s->f[i];
-		hedge.border = false;
 		s->he.push_back(hedge);
 		
 		s->f[i].he = &s->he.back();	// half-edge pointer of the face
@@ -809,10 +807,6 @@ CUTBoolean createHalfedgeList(Solid* s)
 	// find the half-edge adjacent and opposed to the current half-edge
 	for (unsigned int i=0; i < s->he.size(); i++) {
 		s->he[i].twin = findTwin(&s->he[i], s);
-//		if (s->he[i].twin == NULL) {
-//			cout << "shite!" << endl;
-//			return CUTFalse;
-//		}
 	}
 	
 	// build any border halfe-edge of non-manifold meshes
@@ -823,8 +817,8 @@ CUTBoolean createHalfedgeList(Solid* s)
 		do {
 			if ( !current->twin )
 			{
-				border.border = true;
 				border.vert = current->next->vert;
+				border.vn = NULL;
 				border.face = NULL;
 				border.twin = current;
 				border.next = &s->he.back();
@@ -833,33 +827,36 @@ CUTBoolean createHalfedgeList(Solid* s)
 				s->he.push_back(border);
 				if ( border_head == NULL ) {
 					border_head = &s->he.back();
-					printf("^\n|  head border %p\n",border_head);
 				} else {
-					printf("^\n|  border %p\n",&s->he.back());
 				}
 				border_head->next = &s->he.back();
-//				printf("bh->next %p\n",border_head->next);
 
 				current->twin = &s->he.back();
 				current = current->next;
 			}
 			else {
 				current = current->twin->next;
-				cout << "o" << endl;
 			}
 		} while (current != start);
-//		start = current = &s->he.back();
-//		while ( current->border ) {
-//			current->next->prev = current;
-//			cout << current << "  ";
-//			cout << current->prev << endl;
-//			current = current->next;
-//		}
+		
+		current = &s->he.back();
+		while ( !current->next->prev ) {
+			current->next->prev = current;
+			current = current->next;
+		}
 	}
-//	current = &s->he.back();
-//	for (unsigned int i=0; i < 22; i++) {
-//		cout << current << endl;
-//		current = current->next;
+	
+//	for (unsigned int i=0; i < s->v.size(); i++) {
+//		printf("v %3i %8p, he start %8p\n",i+1,&s->v[i],s->v[i].he);
+//	}
+//	for (unsigned int i=0; i < s->he.size(); i++) {
+//		printf("he %3i %8p, v %8p ",i,&s->he[i],s->he[i].vert);
+//		if (!s->he[i].face) {
+//			printf("border\n");
+//		} else {
+//			printf("\n");
+//		}
+//
 //	}
 	
 	return CUTTrue;
@@ -890,14 +887,10 @@ float halfedgeLength(Vertex* v1, Vertex* v2)
 {
 	
 	float x_diff, y_diff, z_diff;
-	cout << "ci arrivo\n";
-	printf("%p %p\n",v1,v2);
-	printf("%f - %f\n%f - %f\n%f - %f\n",v1->pos.x,v2->pos.x,v1->pos.y,v2->pos.y,v1->pos.z,v2->pos.z);
 	
 	x_diff = v1->pos.x - v2->pos.x;
 	y_diff = v1->pos.y - v2->pos.y;
 	z_diff = v1->pos.z - v2->pos.z;
-//	cout << "dopo diff\n";
 	
 	return sqrt( x_diff*x_diff + y_diff*y_diff + z_diff*z_diff );
 }
@@ -923,15 +916,10 @@ CUTBoolean faceArea(Solid* s)
 	for (unsigned int i=0; i < s->v.size(); i++) {
 		he_temp = s->v[i].he;
 		do {
-			cout << he_temp << endl;
 			he_temp->length = halfedgeLength( he_temp->vert, he_temp->twin->vert);
-			cout << "impronato 1" << endl;
 			he_temp = he_temp->twin->next;
-			cout << "---------------------- next while" << endl;
 		} while (he_temp != s->v[i].he);
-		cout << "====================== next for" << endl;
 	}
-	cout << "after 1st for" << endl;
 	
 	// for each face calculate its area
 	for (unsigned int i=0; i < s->f.size(); i++) {
@@ -947,7 +935,6 @@ CUTBoolean faceArea(Solid* s)
 		// area is obtained with Heron's formula
 		s->f[i].area = sqrt( sp * (sp - he_length.at(0)) * (sp - he_length.at(1)) * (sp - he_length.at(2)) );
 	}
-	cout << "after 2nd for" << endl;
 	
 	return CUTTrue;
 }
@@ -985,7 +972,10 @@ float surfelArea(Vertex* v)
 	float area_sum = .0f;
 	
 	do {
-		area_sum += hedge->face->area;
+		if ( hedge->face )
+		{
+			area_sum += hedge->face->area;
+		}
 		hedge = hedge->twin->next;
 	} while (hedge != v->he);
 	
@@ -1230,14 +1220,16 @@ CUTBoolean createPointCloud(Solid* s, vector<Surfel> &pc)
 		weight.clear();
 		cur_he = s->v[i].he;
 		do {
-			// collect vertex normals
-			vnorm.push_back( *cur_he->vn);
-			next_he = cur_he->next->next->twin;
-			// evaluate the angle between the two edges starting from the vertex
-			w = acos( dotProduct( getVector( cur_he), getVector( next_he)));
-			// multiply the angle and the face area to get the weigth
-//			w *= cur_he->face->area;
-			weight.push_back(w);
+			next_he = cur_he->prev->twin;
+			if ( cur_he->vn ) {
+				// collect vertex normals
+				vnorm.push_back( *cur_he->vn);
+				// evaluate the angle between the two edges starting from the vertex
+				w = acos( dotProduct( getVector( cur_he), getVector( next_he)));
+				// multiply the angle and the face area to get the weigth
+//				w *= cur_he->face->area;
+				weight.push_back(w);
+			}
 			cur_he = next_he;
 		} while ( cur_he != s->v[i].he);
 

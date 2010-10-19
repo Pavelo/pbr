@@ -1089,12 +1089,24 @@ void setLighting()
 
 void drawPointCloud(vector<Surfel> &cloud)
 {
-	for (unsigned int i=0; i < cloud.size(); i++) {
-		if (view_model == SURFELS) {
+	if (view_model == POINTS) {
+		glDisable(GL_LIGHTING);
+		glBegin(GL_POINTS);
+	}
+	for (unsigned int i=0; i < cloud.size(); i++)
+	{
+		if (view_model == SURFELS)
+		{
 			drawSurfel( &cloud[i]);
-		} else if (view_model == POINTS) {
+		}
+		else if (view_model == POINTS)
+		{
 			drawPoint( &cloud[i]);
 		}
+	}
+	if (view_model == POINTS) {
+		glEnd();
+		glEnable(GL_LIGHTING);
 	}
 }
 
@@ -1121,13 +1133,8 @@ void drawCircle(float radius)
 
 void drawPoint(Surfel* sf)
 {
-	glDisable(GL_LIGHTING);
-	
-	glBegin(GL_POINTS);
 	glVertex3f( sf->pos.x, sf->pos.y, sf->pos.z );
-	glEnd();
 	
-	glEnable(GL_LIGHTING);
 }
 
 // dot product of NORMALIZED vectors

@@ -96,10 +96,9 @@ struct _Surfel {
 	float3 pos;
 	float3 normal;
 	float area;
-	float radius;               // radius of a circle with this surfel area (for displaying purpose)
-	float phi;                  // angle between initial normal and actual normal (for displaying purpose)
-	float3 rot_axis;            // roation axis needed to correctly orient the surfel representation
-	vector<float2> circ_vert;   // 2D coordinates of vertexes needed to draw the circle rep of the surfel
+	float radius;       // radius of a circle with this surfel area (for displaying purpose)
+	float phi;          // angle between initial normal and actual normal (for displaying purpose)
+	float3 rot_axis;    // roation axis needed to correctly orient the surfel representation
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -113,6 +112,8 @@ float anim = 0.0;
 Solid* h_imesh;
 Solid* h_omesh;
 vector<Surfel> pointCloud;
+int slices;
+float theta;
 unsigned int view_model = POLYS;
 int counter = 0;
 
@@ -164,7 +165,7 @@ void drawSolid( Solid* model);
 void drawPointCloud( vector<Surfel> &cloud);
 void drawSurfel( Surfel* sf);
 void drawPoint( Surfel* sf);
-void drawCircle( vector<float2> &slices_coo);
+void drawCircle( float radius);
 
 // rendering callbacks
 void display();
@@ -184,7 +185,6 @@ float3 normalizeVector( float3 vec);
 float dotProduct( float3 v1, float3 v2);
 float3 crossProduct( float3 v1, float3 v2);
 float3 normalsAverage( vector<float3> normals, vector<float> weights);
-void calcSlicesCoord( int argc, char** argv); 
 
 ////////////////////////////////////////////////////////////////////////////////
 // Program main
@@ -1054,14 +1054,22 @@ CUTBoolean preprocessing(int argc, char** argv)
 
 	}
 
-	calcSlicesCoord( argc, argv);
-	
 //	for (unsigned int i=0; i < pointCloud.size(); i++) {
 //		printf("surfel %u:\t( %12g , %12g , %12g )   ||   normal( %12g , %12g , %12g )   ||   area: %g\n",
 //			   i, pointCloud[i].pos.x, pointCloud[i].pos.y, pointCloud[i].pos.z,
 //			   pointCloud[i].normal.x, pointCloud[i].normal.y, pointCloud[i].normal.z, pointCloud[i].area);
 //	}
 
+	// calculate theta angle of the slices of circle for surfel representation
+	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "surfel_slices")) {
+		cutGetCmdLineArgumenti( argc, (const char**)argv, "surfel_slices", &slices);
+	} else {
+		slices = 12;
+	}
+	slices = (slices < 4 ) ? 4  : slices;
+	slices = (slices > 32) ? 32 : slices;
+	theta = 2*PI / (float)slices;
+	
 	free(cfilename);
 	
 	return CUTTrue;
@@ -1107,18 +1115,18 @@ void drawSurfel(Surfel* sf)
 	glPushMatrix();
 		glTranslatef( sf->pos.x, sf->pos.y, sf->pos.z );
 		glRotatef( sf->phi, sf->rot_axis.x, sf->rot_axis.y, sf->rot_axis.z );
-		drawCircle( sf->circ_vert );
+		drawCircle( sf->radius );
 	glPopMatrix();
 }
 
-void drawCircle(vector<float2> &slices_coo)
+void drawCircle(float radius)
 {
 	glBegin(GL_TRIANGLES);
-	for (unsigned int i=0; i < slices_coo.size(); i++) {
-		glNormal3f( .0f, .0f, 1.f );
+	for (int i=0; i < slices; i++) {
+		glNormal3f( .0f ,.0f, 1.f );
 		glVertex3f( .0f, .0f, .0f );
-		glVertex3f( slices_coo[i%slices_coo.size()].x, slices_coo[i%slices_coo.size()].y, .0f );
-		glVertex3f( slices_coo[(i+1)%slices_coo.size()].x, slices_coo[(i+1)%slices_coo.size()].y, .0f );
+		glVertex3f( radius * cos( i * theta ), radius * sin( i * theta ), .0f );
+		glVertex3f( radius * cos( (i+1) * theta ), radius * sin( (i+1) * theta ), .0f );
 	}
 	glEnd();
 }
@@ -1242,45 +1250,12 @@ CUTBoolean createPointCloud(Solid* s, vector<Surfel> &pc)
 		point.phi = deg( acos( dotProduct( zeta, point.normal)));
 		point.rot_axis = crossProduct( zeta, point.normal);
 //		printf("glRotate( %10g, %10g, %10g, %10g )\n",point.phi,point.rot_axis.x,point.rot_axis.y,point.rot_axis.z);
-
+		
 		pc.push_back( point );
 	}
 	
 	
 	return CUTTrue;
-}
-
-void calcSlicesCoord(int argc, char** argv)
-{
-	int slices;
-	float theta;
-	float2 coo;
-	
-//	arr = (float2*) malloc( n_surfels * sizeof(float2));
-//	for (unsigned int i=0; i < slices; i++)
-//	{
-//		arr[i] = (float2*) malloc( slices * sizeof(float2));
-//	}
-	
-	// calculate theta angle of the slices of circle for surfel representation
-	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "surfel_slices")) {
-		cutGetCmdLineArgumenti( argc, (const char**)argv, "surfel_slices", &slices);
-	} else {
-		slices = 12;
-	}
-	slices = (slices < 4 ) ? 4  : slices;
-	slices = (slices > 32) ? 32 : slices;
-	theta = 2*PI / (float)slices;
-	
-	// compute vertexes coordinates from polar to cartesian
-	for (unsigned int j=0; j < pointCloud.size(); j++) {
-		for (int i=0; i < slices; i++)
-		{
-			coo.x = pointCloud[j].radius * sin( i * theta );
-			coo.y = pointCloud[j].radius * cos( i * theta );
-			pointCloud[j].circ_vert.push_back( coo);
-		}
-	}
 }
 
 CUTBoolean loadPointCloud(const char* path, vector<Surfel> &pc)
@@ -1358,3 +1333,29 @@ string help()
 	
 	return msg;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

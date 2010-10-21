@@ -165,7 +165,7 @@ void drawSolid( Solid* model);
 void drawPointCloud( vector<Surfel> &cloud);
 void drawSurfel( Surfel* sf);
 void drawPoint( Surfel* sf);
-void drawCircle( float radius);
+void drawCircle();
 
 // rendering callbacks
 void display();
@@ -1115,18 +1115,18 @@ void drawSurfel(Surfel* sf)
 	glPushMatrix();
 		glTranslatef( sf->pos.x, sf->pos.y, sf->pos.z );
 		glRotatef( sf->phi, sf->rot_axis.x, sf->rot_axis.y, sf->rot_axis.z );
-		drawCircle( sf->radius );
+		glScalef( sf->radius, sf->radius, 1.f);
+		drawCircle();
 	glPopMatrix();
 }
 
-void drawCircle(float radius)
+void drawCircle()
 {
-	glBegin(GL_TRIANGLES);
-	for (int i=0; i < slices; i++) {
-		glNormal3f( .0f ,.0f, 1.f );
+	glBegin(GL_TRIANGLE_FAN);
+		glNormal3f( .0f, .0f, 1.f );
 		glVertex3f( .0f, .0f, .0f );
-		glVertex3f( radius * cos( i * theta ), radius * sin( i * theta ), .0f );
-		glVertex3f( radius * cos( (i+1) * theta ), radius * sin( (i+1) * theta ), .0f );
+	for (int i=0; i <= slices; i++) {
+		glVertex3f( cos( i * theta ), sin( i * theta ), .0f );
 	}
 	glEnd();
 }

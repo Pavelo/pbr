@@ -1122,11 +1122,20 @@ void drawSurfel(Surfel* sf)
 
 void drawCircle()
 {
+<<<<<<< HEAD
 	glBegin(GL_TRIANGLE_FAN);
 		glNormal3f( .0f, .0f, 1.f );
 		glVertex3f( .0f, .0f, .0f );
 	for (int i=0; i <= slices; i++) {
 		glVertex3f( cos( i * theta ), sin( i * theta ), .0f );
+=======
+	glBegin(GL_TRIANGLES);
+	for (int i=0; i < slices; i++) {
+		glNormal3f( .0f, .0f, 1.f );
+		glVertex3f( .0f, .0f, .0f );
+		glVertex3f( cos( i * theta ), sin( i * theta ), .0f );
+		glVertex3f( cos( (i+1) * theta ), sin( (i+1) * theta ), .0f );
+>>>>>>> 6666708502de649aea7692ac8a03d643e59c5f0f
 	}
 	glEnd();
 }

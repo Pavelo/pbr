@@ -34,11 +34,11 @@
 ################################################################################
 
 # Add source files here
-EXECUTABLE	     := pbrSurfelsCloud
+EXECUTABLE	     := occlusion
 # Cuda source files (compiled with cudacc)
-CUFILES		     := pbrSurfelsCloud_kernel.cu
+CUFILES		     := occlusion_kernel.cu
 # C/C++ source files (compiled with gcc / c++)
-CCFILES		     := pbrSurfelsCloud.cpp
+CCFILES		     := occlusion.cpp
 
 # Additional compiler flags and LIBs to include
 USEGLLIB             := 1

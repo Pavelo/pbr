@@ -96,9 +96,10 @@ struct _Surfel {
 	float3 pos;
 	float3 normal;
 	float area;
-	float radius;       // radius of a circle with this surfel area (for displaying purpose)
-	float phi;          // angle between initial normal and actual normal (for displaying purpose)
-	float3 rot_axis;    // roation axis needed to correctly orient the surfel representation
+	float radius;         // radius of a circle with this surfel area (for displaying purpose)
+	float phi;            // angle between initial normal and actual normal (for displaying purpose)
+	float3 rot_axis;      // roation axis needed to correctly orient the surfel representation
+	float accessibility;  // accessibility value: percentage of the hemisphere above each surfel not occluded by geometry
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -991,7 +992,7 @@ CUTBoolean preprocessing(int argc, char** argv)
 	cfilename = (char**) malloc(sizeof(char));
 	h_imesh = (Solid*) malloc(sizeof(Solid));
 	
-	dir = "/Developer/GPU Computing/C/src/pbrSurfelsCloud/polyModels/";
+	dir = "/Developer/GPU Computing/C/src/occlusion/polyModels/";
 	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "mesh")) {
 		cutGetCmdLineArgumentstr( argc, (const char**)argv, "mesh", cfilename);
 	} else {
@@ -1013,7 +1014,7 @@ CUTBoolean preprocessing(int argc, char** argv)
 	faceArea(h_imesh);
 	
 	// create or load point cloud
-	dir = "/Developer/GPU Computing/C/src/pbrSurfelsCloud/pointClouds/";
+	dir = "/Developer/GPU Computing/C/src/occlusion/pointClouds/";
 	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "cloud_forced")) {
 		cutGetCmdLineArgumentstr( argc, (const char**)argv, "cloud_forced", cfilename );
 		filename = *cfilename;

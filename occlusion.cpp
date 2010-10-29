@@ -39,6 +39,8 @@ using namespace std;
 #define POLYS     1
 #define SURFELS   2
 #define POINTS    3
+#define OCCLUSION 4
+#define GLOBAL    5
 
 ////////////////////////////////////////////////////////////////////////////////
 // data structures
@@ -167,6 +169,7 @@ void drawPointCloud( vector<Surfel> &cloud);
 void drawSurfel( Surfel* sf);
 void drawPoint( Surfel* sf);
 void drawCircle();
+void displayOcclusion( Solid* s, vector<Surfel> &pc);
 
 // rendering callbacks
 void display();
@@ -421,6 +424,10 @@ void display()
 			drawCube(1.5f);
 			break;
 
+		case OCCLUSION:
+			displayOcclusion(h_imesh, pointCloud);
+			break;
+
 		default:
 			break;
 	}
@@ -478,6 +485,11 @@ void keyboard(unsigned char key, int /*x*/, int /*y*/)
 	// point view
 		case '3':
 			view_model = POINTS;
+			break;
+
+	// polygonal view, occlusion rendering
+		case '4':
+			view_model = OCCLUSION;
 			break;
 
 	// press space to reset camera view
@@ -726,9 +738,10 @@ void drawSolid(Solid* model)
 	
 //	glEnable(GL_TEXTURE_2D);
 //	glBindTexture(GL_TEXTURE_2D, model->textureId);
+	glEnable(GL_COLOR_MATERIAL);
+	glColor3f( 1.f, 1.f, 1.f);
 	
 	glBegin(GL_TRIANGLES);
-	
 	for (unsigned int i=0; i < model->f.size(); i++)
 	{
 		glNormal3f(model->vn[model->f[i].n.x-1].x, model->vn[model->f[i].n.x-1].y, model->vn[model->f[i].n.x-1].z);
@@ -754,7 +767,8 @@ void drawSolid(Solid* model)
 	
 	glEnd();
 	
-	glDisable(GL_TEXTURE_2D);
+	glDisable(GL_COLOR_MATERIAL);
+//	glDisable(GL_TEXTURE_2D);
 }
 
 CUTBoolean createHalfedgeList(Solid* s)
@@ -1084,7 +1098,6 @@ void setLighting()
 	glShadeModel(GL_SMOOTH);
 	
 	glEnable(GL_CULL_FACE);
-	glEnable(GL_COLOR_MATERIAL);
 	glEnable(GL_LIGHT0);
 }
 
@@ -1134,6 +1147,7 @@ void drawCircle()
 
 void drawPoint(Surfel* sf)
 {
+	glColor3f( 1.f, 1.f, 1.f);
 	glVertex3f( sf->pos.x, sf->pos.y, sf->pos.z );
 	
 }
@@ -1257,6 +1271,27 @@ CUTBoolean createPointCloud(Solid* s, vector<Surfel> &pc)
 	
 	
 	return CUTTrue;
+}
+
+void displayOcclusion(Solid* s, vector<Surfel> &pc)
+{
+	glDisable(GL_LIGHTING);
+	
+	glBegin(GL_TRIANGLES);
+	for (unsigned int i=0; i < s->f.size(); i++)
+	{
+		glColor3f( pc[s->f[i].v.x-1].accessibility, pc[s->f[i].v.x-1].accessibility, pc[s->f[i].v.x-1].accessibility);
+		glVertex3f(s->v[s->f[i].v.x-1].pos.x, s->v[s->f[i].v.x-1].pos.y, s->v[s->f[i].v.x-1].pos.z);
+		
+		glColor3f( pc[s->f[i].v.y-1].accessibility, pc[s->f[i].v.y-1].accessibility, pc[s->f[i].v.y-1].accessibility);
+		glVertex3f(s->v[s->f[i].v.y-1].pos.x, s->v[s->f[i].v.y-1].pos.y, s->v[s->f[i].v.y-1].pos.z);
+		
+		glColor3f( pc[s->f[i].v.z-1].accessibility, pc[s->f[i].v.z-1].accessibility, pc[s->f[i].v.z-1].accessibility);
+		glVertex3f(s->v[s->f[i].v.z-1].pos.x, s->v[s->f[i].v.z-1].pos.y, s->v[s->f[i].v.z-1].pos.z);
+	}
+	glEnd();
+	
+	glEnable(GL_LIGHTING);
 }
 
 CUTBoolean loadPointCloud(const char* path, vector<Surfel> &pc)

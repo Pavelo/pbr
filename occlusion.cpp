@@ -152,6 +152,8 @@ float semiperimeter( vector<float> length);
 CUTBoolean faceArea( Solid* s);
 float surfelArea( Vertex* v);
 float3 getVector( Halfedge* he);
+float3 getVector( float3 tail, float3 head);
+float3 reverseVector( float3 v);
 CUTBoolean preprocessing( int argc, char** argv);
 CUTBoolean run( int argc, char** argv);
 void cleanup();
@@ -159,6 +161,8 @@ void setLighting();
 CUTBoolean createPointCloud( Solid* s, vector<Surfel> &pc);
 CUTBoolean savePointCloud( vector<Surfel> &pc, const char* path);
 CUTBoolean loadPointCloud( const char* path, vector<Surfel> &pc);
+CUTBoolean occlusion( vector<Surfel> &pc);
+float surfelShadow( Surfel* emitter, Surfel* receiver);
 
 // GL functionality
 CUTBoolean initGL( int argc, char** argv);
@@ -1074,6 +1078,9 @@ CUTBoolean preprocessing(int argc, char** argv)
 //			   i, pointCloud[i].pos.x, pointCloud[i].pos.y, pointCloud[i].pos.z,
 //			   pointCloud[i].normal.x, pointCloud[i].normal.y, pointCloud[i].normal.z, pointCloud[i].area);
 //	}
+	
+	// calculate occlusion
+	occlusion(pointCloud);
 
 	// calculate theta angle of the slices of circle for surfel representation
 	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "surfel_slices")) {
@@ -1188,6 +1195,23 @@ float3 getVector(Halfedge* he)
 	return normalizeVector( res);
 }
 
+// Get the vector from tail to head (which are points)
+float3 getVector(float3 tail, float3 head)
+{
+	float3 res;
+	
+	res.x = head.x - tail.x;
+	res.y = head.y - tail.y;
+	res.z = head.z - tail.z;
+	
+	return res;
+}
+
+float3 reverseVector(float3 v)
+{
+	return make_float3( -v.x, -v.y, -v.z);
+}
+
 CUTBoolean savePointCloud(vector<Surfel> &pc, const char* path)
 {
 	ofstream file;
@@ -1264,11 +1288,44 @@ CUTBoolean createPointCloud(Solid* s, vector<Surfel> &pc)
 		// rotation angle and axis to draw surfel
 		point.phi = deg( acos( dotProduct( zeta, point.normal)));
 		point.rot_axis = crossProduct( zeta, point.normal);
-//		printf("glRotate( %10g, %10g, %10g, %10g )\n",point.phi,point.rot_axis.x,point.rot_axis.y,point.rot_axis.z);
 		
 		pc.push_back( point );
 	}
 	
+	return CUTTrue;
+}
+
+float surfelShadow(Surfel* receiver, Surfel* emitter)
+{
+	float distance, dSquared;
+	float3 ev, emitterVector, receiverVector;
+	
+	ev = getVector( emitter->pos, receiver->pos);
+	distance = magnitude( ev);
+	dSquared = distance * distance;
+	emitterVector = normalizeVector( ev);
+	receiverVector = reverseVector( emitterVector);
+//	printf("(%f, %f, %f) (%f, %f, %f) ",receiverVector.x,receiverVector.y,receiverVector.z ,emitterVector.x,emitterVector.y,emitterVector.z);
+	
+	return ( distance * dotProduct( emitter->normal, emitterVector) * max( 1.f, 4 * dotProduct( receiver->normal, receiverVector)))
+			/ sqrt( emitter->area / PI + dSquared);
+}
+
+CUTBoolean occlusion(vector<Surfel> &pc)
+{
+	float acc=.0f;
+	for (unsigned int i=0; i < pc.size(); i++) {
+		pc[i].accessibility = .0f;
+		for (unsigned int j=0; j < pc.size(); j++) {
+			if (i!=j) {
+				acc = surfelShadow( &pc[i], &pc[j]);
+				pc[i].accessibility += acc;
+//				printf("%f %f\n",pc[i].accessibility,acc);
+			}
+		}
+		pc[i].accessibility = 1-(-pc[i].accessibility/(pc.size()-1));
+//		cout << "---" << endl;
+	}
 	
 	return CUTTrue;
 }

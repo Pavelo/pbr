@@ -124,7 +124,7 @@ int counter = 0;
 int mouse_old_x, mouse_old_y;
 int mouse_buttons = 0;
 float rotate_x = 0.0, rotate_y = 0.0;
-float translate_z = -10.0;
+float3 translate = make_float3( .0f, .0f, -10.0f);
 
 // Auto-Verification Code
 const int frameCheckNumber = 4;
@@ -174,10 +174,12 @@ void drawSurfel( Surfel* sf);
 void drawPoint( Surfel* sf);
 void drawCircle();
 void displayOcclusion( Solid* s, vector<Surfel> &pc);
+void displayGlobal( Solid* s, vector<Surfel> &pc);
 
 // rendering callbacks
 void display();
 void keyboard(unsigned char key, int x, int y);
+void specialKeys(int key, int x, int y);
 void mouse(int button, int state, int x, int y);
 void motion(int x, int y);
 
@@ -193,6 +195,7 @@ float3 normalizeVector( float3 vec);
 float dotProduct( float3 v1, float3 v2);
 float3 crossProduct( float3 v1, float3 v2);
 float3 normalsAverage( vector<float3> normals, vector<float> weights);
+float clamp( float val, float2 range = make_float2( 0.0f, 1.0f));
 
 ////////////////////////////////////////////////////////////////////////////////
 // Program main
@@ -257,6 +260,7 @@ CUTBoolean initGL(int argc, char **argv)
     glutCreateWindow("Cuda GL Interop (polygon to cloud)");
     glutDisplayFunc(display);
     glutKeyboardFunc(keyboard);
+	glutSpecialFunc(specialKeys);
     glutMotionFunc(motion);
 
 	// initialize necessary OpenGL extensions
@@ -410,7 +414,7 @@ void display()
     // set view matrix
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
-    glTranslatef(0.0, 0.0, translate_z);
+    glTranslatef(translate.x, translate.y, translate.z);
     glRotatef(rotate_x, 1.0, 0.0, 0.0);
     glRotatef(rotate_y, 0.0, 1.0, 0.0);
 
@@ -430,6 +434,10 @@ void display()
 
 		case OCCLUSION:
 			displayOcclusion(h_imesh, pointCloud);
+			break;
+
+		case GLOBAL:
+			displayGlobal(h_imesh, pointCloud);
 			break;
 
 		default:
@@ -496,10 +504,15 @@ void keyboard(unsigned char key, int /*x*/, int /*y*/)
 			view_model = OCCLUSION;
 			break;
 
+	// polygonal view, occlusion and lights rendering
+//		case '5':
+//			view_model = GLOBAL;
+//			break;
+			
 	// press space to reset camera view
 		case 32:
-			rotate_x = rotate_y = 0.0;
-			translate_z = -10.0;
+			rotate_x = rotate_y = translate.x = translate.y = 0.0;
+			translate.z = -10.0;
 			break;
 
 	// show help
@@ -511,6 +524,26 @@ void keyboard(unsigned char key, int /*x*/, int /*y*/)
 		default:
 			break;
     }
+}
+
+void specialKeys(int key, int, int)
+{
+	switch (key) {
+		case GLUT_KEY_UP:
+			translate.y += .1f;
+			break;
+		case GLUT_KEY_DOWN:
+			translate.y -= .1f;
+			break;
+		case GLUT_KEY_RIGHT:
+			translate.x += .1f;
+			break;
+		case GLUT_KEY_LEFT:
+			translate.x -= .1f;
+			break;
+		default:
+			break;
+	}
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -539,7 +572,7 @@ void motion(int x, int y)
         rotate_x += dy * 0.2;
         rotate_y += dx * 0.2;
     } else if (mouse_buttons & 4) {
-        translate_z += dy * 0.01;
+        translate.z += dy * 0.02;
     }
 
     mouse_old_x = x;
@@ -985,6 +1018,19 @@ float3 normalizeVector(float3 vec)
 	return make_float3( vec.x/mag, vec.y/mag, vec.z/mag );
 }
 
+float clamp(float val, float2 range)
+{
+	if (val < range.x) {
+		return range.x;
+	}
+	else if (val > range.y) {
+		return range.y;
+	}
+	else {
+		return val;
+	}
+}
+
 float surfelArea(Vertex* v)
 {
 	Halfedge* hedge = v->he;
@@ -1080,6 +1126,7 @@ CUTBoolean preprocessing(int argc, char** argv)
 //	}
 	
 	// calculate occlusion
+	cout << "Computing occlusion..." << endl;
 	occlusion(pointCloud);
 
 	// calculate theta angle of the slices of circle for surfel representation
@@ -1298,32 +1345,36 @@ CUTBoolean createPointCloud(Solid* s, vector<Surfel> &pc)
 float surfelShadow(Surfel* receiver, Surfel* emitter)
 {
 	float distance, dSquared;
-	float3 ev, emitterVector, receiverVector;
+	float3 v, emitterVector;
 	
-	ev = getVector( emitter->pos, receiver->pos);
-	distance = magnitude( ev);
+	v = getVector( emitter->pos, receiver->pos);
+	distance = magnitude( v);
 	dSquared = distance * distance;
-	emitterVector = normalizeVector( ev);
-	receiverVector = reverseVector( emitterVector);
+	emitterVector = normalizeVector( v);
 //	printf("(%f, %f, %f) (%f, %f, %f) ",receiverVector.x,receiverVector.y,receiverVector.z ,emitterVector.x,emitterVector.y,emitterVector.z);
 	
-	return ( distance * dotProduct( emitter->normal, emitterVector) * max( 1.f, 4 * dotProduct( receiver->normal, receiverVector)))
+	return ( distance * clamp( dotProduct( emitter->normal, emitterVector)) * clamp( 4 * dotProduct( receiver->normal, emitterVector)))
 			/ sqrt( emitter->area / PI + dSquared);
 }
 
 CUTBoolean occlusion(vector<Surfel> &pc)
 {
 	float acc=.0f;
+	int counter;
 	for (unsigned int i=0; i < pc.size(); i++) {
 		pc[i].accessibility = .0f;
+		counter = 0;
 		for (unsigned int j=0; j < pc.size(); j++) {
 			if (i!=j) {
 				acc = surfelShadow( &pc[i], &pc[j]);
 				pc[i].accessibility += acc;
-//				printf("%f %f\n",pc[i].accessibility,acc);
+				if (acc > 0.0f) {
+					counter++;
+				}
 			}
+//				printf("%d %f\n",counter,pc[i].accessibility);
 		}
-		pc[i].accessibility = 1-(-pc[i].accessibility/(pc.size()-1));
+		pc[i].accessibility = (counter == 0) ? 1.0f : (1.f - (pc[i].accessibility / (float)counter));
 //		cout << "---" << endl;
 	}
 	
@@ -1349,6 +1400,27 @@ void displayOcclusion(Solid* s, vector<Surfel> &pc)
 	glEnd();
 	
 	glEnable(GL_LIGHTING);
+}
+
+void displayGlobal(Solid* s, vector<Surfel> &pc)
+{
+	glEnable(GL_LIGHTING);
+	glBegin(GL_TRIANGLES);
+	for (unsigned int i=0; i < s->f.size(); i++)
+	{
+		glColor3f( pc[s->f[i].v.x-1].accessibility, pc[s->f[i].v.x-1].accessibility, pc[s->f[i].v.x-1].accessibility);
+		glNormal3f(s->vn[s->f[i].n.x-1].x, s->vn[s->f[i].n.x-1].y, s->vn[s->f[i].n.x-1].z);
+		glVertex3f(s->v[s->f[i].v.x-1].pos.x, s->v[s->f[i].v.x-1].pos.y, s->v[s->f[i].v.x-1].pos.z);
+		
+		glColor3f( pc[s->f[i].v.y-1].accessibility, pc[s->f[i].v.y-1].accessibility, pc[s->f[i].v.y-1].accessibility);
+		glNormal3f(s->vn[s->f[i].n.y-1].x, s->vn[s->f[i].n.y-1].y, s->vn[s->f[i].n.y-1].z);
+		glVertex3f(s->v[s->f[i].v.y-1].pos.x, s->v[s->f[i].v.y-1].pos.y, s->v[s->f[i].v.y-1].pos.z);
+		
+		glColor3f( pc[s->f[i].v.z-1].accessibility, pc[s->f[i].v.z-1].accessibility, pc[s->f[i].v.z-1].accessibility);
+		glNormal3f(s->vn[s->f[i].n.z-1].x, s->vn[s->f[i].n.z-1].y, s->vn[s->f[i].n.z-1].z);
+		glVertex3f(s->v[s->f[i].v.z-1].pos.x, s->v[s->f[i].v.z-1].pos.y, s->v[s->f[i].v.z-1].pos.z);
+	}
+	glEnd();
 }
 
 CUTBoolean loadPointCloud(const char* path, vector<Surfel> &pc)

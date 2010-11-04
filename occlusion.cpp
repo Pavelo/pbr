@@ -1345,36 +1345,39 @@ CUTBoolean createPointCloud(Solid* s, vector<Surfel> &pc)
 float surfelShadow(Surfel* receiver, Surfel* emitter)
 {
 	float distance, dSquared;
-	float3 v, emitterVector;
+	float3 v, emitterVector, receiverVector;
 	
 	v = getVector( emitter->pos, receiver->pos);
 	distance = magnitude( v);
 	dSquared = distance * distance;
 	emitterVector = normalizeVector( v);
+	receiverVector = reverseVector( emitterVector);
 //	printf("(%f, %f, %f) (%f, %f, %f) ",receiverVector.x,receiverVector.y,receiverVector.z ,emitterVector.x,emitterVector.y,emitterVector.z);
 	
-	return ( distance * clamp( dotProduct( emitter->normal, emitterVector)) * clamp( 4 * dotProduct( receiver->normal, emitterVector)))
-			/ sqrt( emitter->area / PI + dSquared);
+//	return ( distance * dotProduct( emitter->normal, emitterVector) * max( 1.f, 4 * dotProduct( receiver->normal, receiverVector)))
+//			/ sqrt( (emitter->area / PI) + dSquared);
+	return (1 - 1 / sqrt( (emitter->area / PI) / dSquared + 1)) * clamp( dotProduct( emitter->normal, emitterVector)) * clamp( 4 * dotProduct( receiver->normal, receiverVector));
 }
 
 CUTBoolean occlusion(vector<Surfel> &pc)
 {
 	float acc=.0f;
-	int counter;
+//	int counter;
 	for (unsigned int i=0; i < pc.size(); i++) {
 		pc[i].accessibility = .0f;
-		counter = 0;
+//		counter = 0;
 		for (unsigned int j=0; j < pc.size(); j++) {
 			if (i!=j) {
 				acc = surfelShadow( &pc[i], &pc[j]);
 				pc[i].accessibility += acc;
-				if (acc > 0.0f) {
-					counter++;
-				}
+//				if (acc > 0.0f) {
+//					counter++;
+//				}
 			}
 //				printf("%d %f\n",counter,pc[i].accessibility);
 		}
-		pc[i].accessibility = (counter == 0) ? 1.0f : (1.f - (pc[i].accessibility / (float)counter));
+//		pc[i].accessibility = (counter == 0) ? 1.0f : (1.f - (pc[i].accessibility / (float)counter));
+		pc[i].accessibility = 1 - pc[i].accessibility;
 //		cout << "---" << endl;
 	}
 	

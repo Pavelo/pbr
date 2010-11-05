@@ -1,5 +1,6 @@
 # This file uses centimeters as units for non-parametric coordinates.
 
+mtllib white_lambert.mtl
 v 0.000000 -4.391082 1.914645
 v 0.000000 6.411722 5.760858
 v 0.000000 -0.854521 5.776533

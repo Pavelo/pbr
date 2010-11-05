@@ -36,11 +36,10 @@ using namespace std;
 // definitions
 #define PI 3.14159265358979323846f
 #define POLY_CUBE 0
-#define POLYS     1
+#define POINTS    1
 #define SURFELS   2
-#define POINTS    3
+#define POLYS     3
 #define OCCLUSION 4
-#define GLOBAL    5
 
 ////////////////////////////////////////////////////////////////////////////////
 // data structures
@@ -90,8 +89,8 @@ struct _Solid
 	float shininess;
 	
 	int textureId;
-	char textureName[32];
-	char texturePath[32];
+	string textureName;
+	string texturePath;
 };
 
 struct _Surfel {
@@ -166,6 +165,7 @@ float surfelShadow( Surfel* emitter, Surfel* receiver);
 
 // GL functionality
 CUTBoolean initGL( int argc, char** argv);
+CUTBoolean loadMTL( const char* path, Solid* model);
 CUTBoolean loadOBJ( const char* path, Solid* model);
 void drawCube( float size);
 void drawSolid( Solid* model);
@@ -436,9 +436,9 @@ void display()
 			displayOcclusion(h_imesh, pointCloud);
 			break;
 
-		case GLOBAL:
-			displayGlobal(h_imesh, pointCloud);
-			break;
+//		case GLOBAL:
+//			displayGlobal(h_imesh, pointCloud);
+//			break;
 
 		default:
 			break;
@@ -484,9 +484,9 @@ void keyboard(unsigned char key, int /*x*/, int /*y*/)
 			view_model = POLY_CUBE;
 			break;
 
-	// polygonal view
+	// points/vertexes view
 		case '1':
-			view_model = POLYS;
+			view_model = POINTS;
 			break;
 			
 	// surfel view
@@ -494,10 +494,16 @@ void keyboard(unsigned char key, int /*x*/, int /*y*/)
 			view_model = SURFELS;
 			break;
 			
-	// point view
+	// polygonal view
 		case '3':
-			view_model = POINTS;
+			view_model = POLYS;
 			break;
+
+	// multipass
+//		case 'e':
+//		case 'E':
+//			
+//			break;
 
 	// polygonal view, occlusion rendering
 		case '4':
@@ -632,15 +638,74 @@ void drawCube(float size)
 	glFrontFace(GL_CCW);
 }
 
+CUTBoolean loadMTL(const char* path, Solid* model)
+{
+	CUTBoolean loaded;
+	const char* line;
+	string s_line;
+
+	//assegno un identificativo per la texture da caricare per ogni modello
+//	model->textureId = txtId;
+//	txtId++;
+	
+	ifstream fp(path);
+	
+	if (fp.is_open())
+	{
+		while (!fp.eof())
+		{
+			getline(fp, s_line);
+			line = s_line.c_str();
+			
+			if (s_line.find("map_Kd") == 0)
+			{
+				model->textureName = s_line.substr(7);
+				model->texturePath = "textures/";
+				model->texturePath += model->textureName;
+				// manca il caricamento della texture da TGA
+//				strncpy(model->textureName, line + 7, strlen(line)-8);
+//				printf(" [%s ", model->textureName);
+//				sprintf(model->texturePath, "texture/%s", model->textureName);
+//				printf("%d]", loadTGA(model->texturePath, model->textureId));
+			}
+			else if (s_line.find("Kd") == 0)
+			{
+				sscanf(line, "%*c%*c %f %f %f", &model->diffuse[0], &model->diffuse[1], &model->diffuse[2]);
+			}
+			else if (s_line.find("Ka") == 0)
+			{
+				sscanf(line, "%*c%*c %f %f %f", &model->ambient[0], &model->ambient[1], &model->ambient[2]);
+			}
+			else if (s_line.find("Ks") == 0)
+			{
+				sscanf(line, "%*c%*c %f %f %f", &model->specular[0], &model->specular[1], &model->specular[2]);
+			}
+			else if (s_line.find("Ns") == 0)
+			{
+				sscanf(line, "%*c%*c %f", &model->shininess);
+			}
+		}
+		loaded = CUTTrue;
+	}
+	else
+	{
+		loaded = CUTFalse;
+	}
+	
+	fp.close();
+	
+	return loaded;
+}
+
 CUTBoolean loadOBJ(const char* path, Solid* model)
 {
 	CUTBoolean loaded;
-	string s_line;
+	string s_line, s_path;
 	const char *line;
 	
 	vector<string> vtn;
 	vector<int> vtn_parsed;
-	string vtn_element;
+	string vtn_element, mtllibName, mtllibPath;
 	unsigned int pos;
 	unsigned int beg;
 	unsigned int end;
@@ -652,16 +717,7 @@ CUTBoolean loadOBJ(const char* path, Solid* model)
 	
 	ifstream fp(path);
 	
-// 	char mtllibName[32];
-// 	char mtllibPath[32];
-	
-	// inizializzo le stringhe
-// 	int i;
-// 	for (i=0; i<32; i++)
-// 	{
-// 		mtllibName[i] = '\0';
-// 		mtllibPath[i] = '\0';
-// 	}
+	s_path = path;
 	
 	if (fp.is_open())
 	{
@@ -739,20 +795,12 @@ CUTBoolean loadOBJ(const char* path, Solid* model)
 				vtn_parsed.clear();
 				vtn.clear();
 			}
-// 			else if (strstr(line, "mtllib") != NULL)
-// 			{
-// 				strncpy(mtllibName, line+7, strlen(line)-8);
-// 				printf("%s", mtllibName);
-// 				sprintf(mtllibPath, "obj/%s", mtllibName);
-// 				printf(" %d\n",loadMTL(mtllibPath,model));
-// 				
-// 				// reinizializzo le stringhe
-// 				for (i=0; i<32; i++)
-// 				{
-// 					mtllibName[i] = '\0';
-// 					mtllibPath[i] = '\0';
-// 				}
-// 			}
+			else if ( s_line.find("mtllib") == 0 )
+			{
+				mtllibName = s_line.substr(7);
+				mtllibPath = s_path.substr( 0, s_path.find_last_of( '/') + 1) + mtllibName;
+				loadMTL( mtllibPath.c_str(), h_imesh);
+			}
 		}
 		loaded = CUTTrue;
 	}
@@ -769,14 +817,12 @@ CUTBoolean loadOBJ(const char* path, Solid* model)
 void drawSolid(Solid* model)
 {
 //	glMaterialfv(GL_FRONT, GL_AMBIENT, model->ambient);
-//	glMaterialfv(GL_FRONT, GL_DIFFUSE, model->diffuse);
+	glMaterialfv(GL_FRONT, GL_DIFFUSE, model->diffuse);
 //	glMaterialfv(GL_FRONT, GL_SPECULAR, model->specular);
 //	glMaterialf(GL_FRONT, GL_SHININESS, model->shininess);
 	
 //	glEnable(GL_TEXTURE_2D);
 //	glBindTexture(GL_TEXTURE_2D, model->textureId);
-	glEnable(GL_COLOR_MATERIAL);
-	glColor3f( 1.f, 1.f, 1.f);
 	
 	glBegin(GL_TRIANGLES);
 	for (unsigned int i=0; i < model->f.size(); i++)
@@ -804,7 +850,6 @@ void drawSolid(Solid* model)
 	
 	glEnd();
 	
-	glDisable(GL_COLOR_MATERIAL);
 //	glDisable(GL_TEXTURE_2D);
 }
 
@@ -1157,14 +1202,15 @@ void setLighting()
 
 void drawPointCloud(vector<Surfel> &cloud)
 {
-	if (view_model == POINTS) {
 		glDisable(GL_LIGHTING);
+	if (view_model == POINTS) {
 		glBegin(GL_POINTS);
 	}
 	for (unsigned int i=0; i < cloud.size(); i++)
 	{
 		if (view_model == SURFELS)
 		{
+			glColor3f( cloud[i].accessibility, cloud[i].accessibility, cloud[i].accessibility);
 			drawSurfel( &cloud[i]);
 		}
 		else if (view_model == POINTS)
@@ -1174,8 +1220,8 @@ void drawPointCloud(vector<Surfel> &cloud)
 	}
 	if (view_model == POINTS) {
 		glEnd();
-		glEnable(GL_LIGHTING);
 	}
+		glEnable(GL_LIGHTING);
 }
 
 void drawSurfel(Surfel* sf)
@@ -1492,29 +1538,3 @@ string help()
 	
 	return msg;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

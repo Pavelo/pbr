@@ -35,11 +35,12 @@ using namespace std;
 
 // definitions
 #define PI 3.14159265358979323846f
-#define POLY_CUBE 0
-#define POINTS    1
-#define SURFELS   2
-#define POLYS     3
-#define OCCLUSION 4
+#define POLY_CUBE  0
+#define POINTS     1
+#define SURFELS    2
+#define POLYS      3
+#define OCCLUSION  4
+#define OCC_DOUBLE 5
 
 ////////////////////////////////////////////////////////////////////////////////
 // data structures
@@ -101,6 +102,7 @@ struct _Surfel {
 	float phi;            // angle between initial normal and actual normal (for displaying purpose)
 	float3 rot_axis;      // roation axis needed to correctly orient the surfel representation
 	float accessibility;  // accessibility value: percentage of the hemisphere above each surfel not occluded by geometry
+	float acc_double_pass;// accessibility value got with two-passes computation
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -117,6 +119,8 @@ vector<Surfel> pointCloud;
 int slices;
 float theta;
 unsigned int view_model = POLYS;
+float light_rotate_y = 0.0f;
+float light_orientation[] = {0, 0, 1, 0};
 int counter = 0;
 
 // mouse controls
@@ -174,7 +178,7 @@ void drawSurfel( Surfel* sf);
 void drawPoint( Surfel* sf);
 void drawCircle();
 void displayOcclusion( Solid* s, vector<Surfel> &pc);
-void displayGlobal( Solid* s, vector<Surfel> &pc);
+void displayOcclusionDoublePass( Solid* s, vector<Surfel> &pc);
 
 // rendering callbacks
 void display();
@@ -414,6 +418,12 @@ void display()
     // set view matrix
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
+	
+	glPushMatrix();
+	glRotatef( light_rotate_y, 0.0, 1.0, 0.0);
+	glLightfv(GL_LIGHT0, GL_POSITION, light_orientation);
+	glPopMatrix();
+	
     glTranslatef(translate.x, translate.y, translate.z);
     glRotatef(rotate_x, 1.0, 0.0, 0.0);
     glRotatef(rotate_y, 0.0, 1.0, 0.0);
@@ -436,9 +446,9 @@ void display()
 			displayOcclusion(h_imesh, pointCloud);
 			break;
 
-//		case GLOBAL:
-//			displayGlobal(h_imesh, pointCloud);
-//			break;
+		case OCC_DOUBLE:
+			displayOcclusionDoublePass(h_imesh, pointCloud);
+			break;
 
 		default:
 			break;
@@ -499,21 +509,30 @@ void keyboard(unsigned char key, int /*x*/, int /*y*/)
 			view_model = POLYS;
 			break;
 
-	// multipass
-//		case 'e':
-//		case 'E':
-//			
-//			break;
-
 	// polygonal view, occlusion rendering
 		case '4':
 			view_model = OCCLUSION;
+			break;
+
+	// multipass
+		case '5':
+			view_model = OCC_DOUBLE;
 			break;
 
 	// polygonal view, occlusion and lights rendering
 //		case '5':
 //			view_model = GLOBAL;
 //			break;
+		
+	// rotate light
+		case 'l':
+			light_rotate_y += 9.0f;
+			break;
+
+	// rotate light in big steps
+		case 'k':
+			light_rotate_y += 90.0f - fmod( light_rotate_y, 90.0f);
+			break;
 			
 	// press space to reset camera view
 		case 32:
@@ -1164,12 +1183,6 @@ CUTBoolean preprocessing(int argc, char** argv)
 
 	}
 
-//	for (unsigned int i=0; i < pointCloud.size(); i++) {
-//		printf("surfel %u:\t( %12g , %12g , %12g )   ||   normal( %12g , %12g , %12g )   ||   area: %g\n",
-//			   i, pointCloud[i].pos.x, pointCloud[i].pos.y, pointCloud[i].pos.z,
-//			   pointCloud[i].normal.x, pointCloud[i].normal.y, pointCloud[i].normal.z, pointCloud[i].area);
-//	}
-	
 	// calculate occlusion
 	cout << "Computing occlusion..." << endl;
 	occlusion(pointCloud);
@@ -1442,25 +1455,25 @@ void displayOcclusion(Solid* s, vector<Surfel> &pc)
 	glEnable(GL_LIGHTING);
 }
 
-void displayGlobal(Solid* s, vector<Surfel> &pc)
+void displayOcclusionDoublePass(Solid* s, vector<Surfel> &pc)
 {
-	glEnable(GL_LIGHTING);
+	glDisable(GL_LIGHTING);
+	
 	glBegin(GL_TRIANGLES);
 	for (unsigned int i=0; i < s->f.size(); i++)
 	{
-		glColor3f( pc[s->f[i].v.x-1].accessibility, pc[s->f[i].v.x-1].accessibility, pc[s->f[i].v.x-1].accessibility);
-		glNormal3f(s->vn[s->f[i].n.x-1].x, s->vn[s->f[i].n.x-1].y, s->vn[s->f[i].n.x-1].z);
+		glColor3f( pc[s->f[i].v.x-1].acc_double_pass, pc[s->f[i].v.x-1].acc_double_pass, pc[s->f[i].v.x-1].acc_double_pass);
 		glVertex3f(s->v[s->f[i].v.x-1].pos.x, s->v[s->f[i].v.x-1].pos.y, s->v[s->f[i].v.x-1].pos.z);
 		
-		glColor3f( pc[s->f[i].v.y-1].accessibility, pc[s->f[i].v.y-1].accessibility, pc[s->f[i].v.y-1].accessibility);
-		glNormal3f(s->vn[s->f[i].n.y-1].x, s->vn[s->f[i].n.y-1].y, s->vn[s->f[i].n.y-1].z);
+		glColor3f( pc[s->f[i].v.y-1].acc_double_pass, pc[s->f[i].v.y-1].acc_double_pass, pc[s->f[i].v.y-1].acc_double_pass);
 		glVertex3f(s->v[s->f[i].v.y-1].pos.x, s->v[s->f[i].v.y-1].pos.y, s->v[s->f[i].v.y-1].pos.z);
 		
-		glColor3f( pc[s->f[i].v.z-1].accessibility, pc[s->f[i].v.z-1].accessibility, pc[s->f[i].v.z-1].accessibility);
-		glNormal3f(s->vn[s->f[i].n.z-1].x, s->vn[s->f[i].n.z-1].y, s->vn[s->f[i].n.z-1].z);
+		glColor3f( pc[s->f[i].v.z-1].acc_double_pass, pc[s->f[i].v.z-1].acc_double_pass, pc[s->f[i].v.z-1].acc_double_pass);
 		glVertex3f(s->v[s->f[i].v.z-1].pos.x, s->v[s->f[i].v.z-1].pos.y, s->v[s->f[i].v.z-1].pos.z);
 	}
 	glEnd();
+	
+	glEnable(GL_LIGHTING);
 }
 
 CUTBoolean loadPointCloud(const char* path, vector<Surfel> &pc)
@@ -1527,9 +1540,12 @@ string help()
 	msg += "--------\n";
 	msg += "\n";
 	msg += "Keyboard:\n";
-	msg += "1        view polygonal mesh\n";
+	msg += "1        view mesh vertexes (equivalent to surfels position)\n";
 	msg += "2        view surfel cloud representation\n";
-	msg += "3        view mesh vertexes (equivalent to surfels position)\n";
+	msg += "3        view polygonal mesh\n";
+	msg += "4        view occlusion representation\n";
+	msg += "l        rotate scene light\n";
+	msg += "k        reset light position\n";
 	msg += "SPACE    reset camera view to initial values\n";
 	msg += "\n";
 	msg += "Mouse:\n";

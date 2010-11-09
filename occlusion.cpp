@@ -90,8 +90,8 @@ struct _Solid
 	float shininess;
 	
 	int textureId;
-	string textureName;
-	string texturePath;
+	string* textureName;
+	string* texturePath;
 };
 
 struct _Surfel {
@@ -102,7 +102,7 @@ struct _Surfel {
 	float phi;            // angle between initial normal and actual normal (for displaying purpose)
 	float3 rot_axis;      // roation axis needed to correctly orient the surfel representation
 	float accessibility;  // accessibility value: percentage of the hemisphere above each surfel not occluded by geometry
-	float acc_double_pass;// accessibility value got with two-passes computation
+	float acc_2nd_pass;   // accessibility value got with two-passes computation
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -164,7 +164,7 @@ void setLighting();
 CUTBoolean createPointCloud( Solid* s, vector<Surfel> &pc);
 CUTBoolean savePointCloud( vector<Surfel> &pc, const char* path);
 CUTBoolean loadPointCloud( const char* path, vector<Surfel> &pc);
-CUTBoolean occlusion( vector<Surfel> &pc);
+CUTBoolean occlusion( int passes, vector<Surfel> &pc);
 float surfelShadow( Surfel* emitter, Surfel* receiver);
 
 // GL functionality
@@ -661,7 +661,7 @@ CUTBoolean loadMTL(const char* path, Solid* model)
 {
 	CUTBoolean loaded;
 	const char* line;
-	string s_line;
+	string s_line, tn, tp;
 
 	//assegno un identificativo per la texture da caricare per ogni modello
 //	model->textureId = txtId;
@@ -678,9 +678,10 @@ CUTBoolean loadMTL(const char* path, Solid* model)
 			
 			if (s_line.find("map_Kd") == 0)
 			{
-				model->textureName = s_line.substr(7);
-				model->texturePath = "textures/";
-				model->texturePath += model->textureName;
+				tn = s_line.substr(7);
+				tp = "textures/" + tn;
+				model->textureName = &tn;
+				model->texturePath = &tp;
 				// manca il caricamento della texture da TGA
 //				strncpy(model->textureName, line + 7, strlen(line)-8);
 //				printf(" [%s ", model->textureName);
@@ -974,7 +975,7 @@ CUTBoolean createHalfedgeList(Solid* s)
 //		}
 //
 //	}
-	
+
 	return CUTTrue;
 }
 
@@ -1143,8 +1144,8 @@ CUTBoolean preprocessing(int argc, char** argv)
 	
 	// create or load point cloud
 	dir = "/Developer/GPU Computing/C/src/occlusion/pointClouds/";
-	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "cloud_forced")) {
-		cutGetCmdLineArgumentstr( argc, (const char**)argv, "cloud_forced", cfilename );
+	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "cloud")) {
+		cutGetCmdLineArgumentstr( argc, (const char**)argv, "cloud", cfilename );
 		filename = *cfilename;
 		path = dir + filename;
 
@@ -1184,8 +1185,14 @@ CUTBoolean preprocessing(int argc, char** argv)
 	}
 
 	// calculate occlusion
+	int multipass;
 	cout << "Computing occlusion..." << endl;
-	occlusion(pointCloud);
+	if ( cutCheckCmdLineFlag( argc, (const char**)argv, "multipass")) {
+		cutGetCmdLineArgumenti( argc, (const char**)argv, "multipass", &multipass);
+	} else {
+		multipass = 1;
+	}
+	occlusion( multipass, pointCloud);
 
 	// calculate theta angle of the slices of circle for surfel representation
 	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "surfel_slices")) {
@@ -1417,20 +1424,40 @@ float surfelShadow(Surfel* receiver, Surfel* emitter)
 			* clamp( 4 * dotProduct( receiver->normal, receiverVector));
 }
 
-CUTBoolean occlusion(vector<Surfel> &pc)
+CUTBoolean occlusion(int passes, vector<Surfel> &pc)
 {
 	float sshadow;
 	
-	for (unsigned int i=0; i < pc.size(); i++) {
-		sshadow = .0f;
-		for (unsigned int j=0; j < pc.size(); j++) {
-			if (i!=j) {
-				sshadow += surfelShadow( &pc[i], &pc[j]);
+//	for (int k=0; k < passes; k++)
+//	{
+		for (unsigned int i=0; i < pc.size(); i++)
+		{
+			sshadow = .0f;
+			for (unsigned int j=0; j < pc.size(); j++)
+			{
+				if (i!=j) {
+					sshadow += surfelShadow( &pc[i], &pc[j]);
+				}
 			}
+			pc[i].accessibility = 1.f - sshadow;
 		}
-		pc[i].accessibility = 1.f - sshadow;
+//	}
+
+	if (passes >= 2)
+	{
+		for (unsigned int i=0; i < pc.size(); i++)
+		{
+			sshadow = .0f;
+			for (unsigned int j=0; j < pc.size(); j++)
+			{
+				if (i!=j) {
+					sshadow += surfelShadow( &pc[i], &pc[j]) * pc[j].accessibility;
+				}
+			}
+			pc[i].acc_2nd_pass = 1.f - sshadow;
+		}
 	}
-	
+
 	return CUTTrue;
 }
 
@@ -1462,13 +1489,13 @@ void displayOcclusionDoublePass(Solid* s, vector<Surfel> &pc)
 	glBegin(GL_TRIANGLES);
 	for (unsigned int i=0; i < s->f.size(); i++)
 	{
-		glColor3f( pc[s->f[i].v.x-1].acc_double_pass, pc[s->f[i].v.x-1].acc_double_pass, pc[s->f[i].v.x-1].acc_double_pass);
+		glColor3f( pc[s->f[i].v.x-1].acc_2nd_pass, pc[s->f[i].v.x-1].acc_2nd_pass, pc[s->f[i].v.x-1].acc_2nd_pass);
 		glVertex3f(s->v[s->f[i].v.x-1].pos.x, s->v[s->f[i].v.x-1].pos.y, s->v[s->f[i].v.x-1].pos.z);
 		
-		glColor3f( pc[s->f[i].v.y-1].acc_double_pass, pc[s->f[i].v.y-1].acc_double_pass, pc[s->f[i].v.y-1].acc_double_pass);
+		glColor3f( pc[s->f[i].v.y-1].acc_2nd_pass, pc[s->f[i].v.y-1].acc_2nd_pass, pc[s->f[i].v.y-1].acc_2nd_pass);
 		glVertex3f(s->v[s->f[i].v.y-1].pos.x, s->v[s->f[i].v.y-1].pos.y, s->v[s->f[i].v.y-1].pos.z);
 		
-		glColor3f( pc[s->f[i].v.z-1].acc_double_pass, pc[s->f[i].v.z-1].acc_double_pass, pc[s->f[i].v.z-1].acc_double_pass);
+		glColor3f( pc[s->f[i].v.z-1].acc_2nd_pass, pc[s->f[i].v.z-1].acc_2nd_pass, pc[s->f[i].v.z-1].acc_2nd_pass);
 		glVertex3f(s->v[s->f[i].v.z-1].pos.x, s->v[s->f[i].v.z-1].pos.y, s->v[s->f[i].v.z-1].pos.z);
 	}
 	glEnd();

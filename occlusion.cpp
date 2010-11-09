@@ -1427,23 +1427,8 @@ float surfelShadow(Surfel* receiver, Surfel* emitter)
 CUTBoolean occlusion(int passes, vector<Surfel> &pc)
 {
 	float sshadow;
-	
-//	for (int k=0; k < passes; k++)
-//	{
-		for (unsigned int i=0; i < pc.size(); i++)
-		{
-			sshadow = .0f;
-			for (unsigned int j=0; j < pc.size(); j++)
-			{
-				if (i!=j) {
-					sshadow += surfelShadow( &pc[i], &pc[j]);
-				}
-			}
-			pc[i].accessibility = 1.f - sshadow;
-		}
-//	}
 
-	if (passes >= 2)
+	for (int k=1; k <= passes; k++)
 	{
 		for (unsigned int i=0; i < pc.size(); i++)
 		{
@@ -1451,10 +1436,24 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc)
 			for (unsigned int j=0; j < pc.size(); j++)
 			{
 				if (i!=j) {
-					sshadow += surfelShadow( &pc[i], &pc[j]) * pc[j].accessibility;
+					if (k == 1)
+					{
+						sshadow += surfelShadow( &pc[i], &pc[j]);
+					}
+					else if (k == 2)
+					{
+						sshadow += surfelShadow( &pc[i], &pc[j]) * pc[j].accessibility;
+					}
 				}
 			}
-			pc[i].acc_2nd_pass = 1.f - sshadow;
+			if (k == 1)
+			{
+				pc[i].accessibility = 1.f - sshadow;
+			}
+			else if (k == 2)
+			{
+				pc[i].acc_2nd_pass = 1.f - sshadow;
+			}
 		}
 	}
 

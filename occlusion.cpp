@@ -41,6 +41,7 @@ using namespace std;
 #define POLYS      3
 #define OCCLUSION  4
 #define OCC_DOUBLE 5
+#define BENT_NORM  6
 
 ////////////////////////////////////////////////////////////////////////////////
 // data structures
@@ -97,6 +98,7 @@ struct _Solid
 struct _Surfel {
 	float3 pos;
 	float3 normal;
+	float3 bentNormal;
 	float area;
 	float radius;         // radius of a circle with this surfel area (for displaying purpose)
 	float phi;            // angle between initial normal and actual normal (for displaying purpose)
@@ -165,7 +167,7 @@ CUTBoolean createPointCloud( Solid* s, vector<Surfel> &pc);
 CUTBoolean savePointCloud( vector<Surfel> &pc, const char* path);
 CUTBoolean loadPointCloud( const char* path, vector<Surfel> &pc);
 CUTBoolean occlusion( int passes, vector<Surfel> &pc);
-float surfelShadow( Surfel* emitter, Surfel* receiver);
+float surfelShadow( Surfel* emitter, Surfel* receiver, float3 &receiverVector);
 
 // GL functionality
 CUTBoolean initGL( int argc, char** argv);
@@ -179,6 +181,7 @@ void drawPoint( Surfel* sf);
 void drawCircle();
 void displayOcclusion( Solid* s, vector<Surfel> &pc);
 void displayOcclusionDoublePass( Solid* s, vector<Surfel> &pc);
+void displayBentNormal( Solid* model, vector<Surfel> &pc);
 
 // rendering callbacks
 void display();
@@ -199,7 +202,7 @@ float3 normalizeVector( float3 vec);
 float dotProduct( float3 v1, float3 v2);
 float3 crossProduct( float3 v1, float3 v2);
 float3 normalsAverage( vector<float3> normals, vector<float> weights);
-float clamp( float val, float2 range = make_float2( 0.0f, 1.0f));
+float clamp( float val, float inf = 0.0f, float sup = 1.0f);
 
 ////////////////////////////////////////////////////////////////////////////////
 // Program main
@@ -450,6 +453,10 @@ void display()
 			displayOcclusionDoublePass(h_imesh, pointCloud);
 			break;
 
+		case BENT_NORM:
+			displayBentNormal(h_imesh, pointCloud);
+			break;
+
 		default:
 			break;
 	}
@@ -514,9 +521,14 @@ void keyboard(unsigned char key, int /*x*/, int /*y*/)
 			view_model = OCCLUSION;
 			break;
 
-	// multipass
+	// polygonal view, double pass occlusion
 		case '5':
 			view_model = OCC_DOUBLE;
+			break;
+
+	// polygonal view, bent normal rendering
+		case '6':
+			view_model = BENT_NORM;
 			break;
 
 	// polygonal view, occlusion and lights rendering
@@ -873,6 +885,25 @@ void drawSolid(Solid* model)
 //	glDisable(GL_TEXTURE_2D);
 }
 
+void displayBentNormal(Solid* model, vector<Surfel> &pc)
+{
+	glMaterialfv(GL_FRONT, GL_DIFFUSE, model->diffuse);
+
+	glBegin(GL_TRIANGLES);
+	for (unsigned int i=0; i < model->f.size(); i++)
+	{
+		glNormal3f(pc[model->f[i].n.x-1].normal.x, pc[model->f[i].n.x-1].normal.y, pc[model->f[i].n.x-1].normal.z);
+		glVertex3f(model->v[model->f[i].v.x-1].pos.x, model->v[model->f[i].v.x-1].pos.y, model->v[model->f[i].v.x-1].pos.z);
+		
+		glNormal3f(pc[model->f[i].n.y-1].normal.x, pc[model->f[i].n.y-1].normal.y, pc[model->f[i].n.y-1].normal.z);
+		glVertex3f(model->v[model->f[i].v.y-1].pos.x, model->v[model->f[i].v.y-1].pos.y, model->v[model->f[i].v.y-1].pos.z);
+		
+		glNormal3f(pc[model->f[i].n.z-1].normal.x, pc[model->f[i].n.z-1].normal.y, pc[model->f[i].n.z-1].normal.z);
+		glVertex3f(model->v[model->f[i].v.z-1].pos.x, model->v[model->f[i].v.z-1].pos.y, model->v[model->f[i].v.z-1].pos.z);
+	}
+	glEnd();
+}
+
 CUTBoolean createHalfedgeList(Solid* s)
 {
 	if ( s->v.empty() || s->f.empty()) {
@@ -1083,13 +1114,13 @@ float3 normalizeVector(float3 vec)
 	return make_float3( vec.x/mag, vec.y/mag, vec.z/mag );
 }
 
-float clamp(float val, float2 range)
+float clamp(float val, float inf, float sup)
 {
-	if (val < range.x) {
-		return range.x;
+	if (val < inf) {
+		return inf;
 	}
-	else if (val > range.y) {
-		return range.y;
+	else if (val > sup) {
+		return sup;
 	}
 	else {
 		return val;
@@ -1198,10 +1229,9 @@ CUTBoolean preprocessing(int argc, char** argv)
 	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "surfel_slices")) {
 		cutGetCmdLineArgumenti( argc, (const char**)argv, "surfel_slices", &slices);
 	} else {
-		slices = 12;
+		slices = 24;
 	}
-	slices = (slices < 4 ) ? 4  : slices;
-	slices = (slices > 32) ? 32 : slices;
+	slices = clamp( slices, 4, 32);
 	theta = 2*PI / (float)slices;
 	
 	free(cfilename);
@@ -1408,10 +1438,10 @@ CUTBoolean createPointCloud(Solid* s, vector<Surfel> &pc)
 	return CUTTrue;
 }
 
-float surfelShadow(Surfel* receiver, Surfel* emitter)
+float surfelShadow(Surfel* receiver, Surfel* emitter, float3 &receiverVector)
 {
 	float distance, dSquared;
-	float3 v, emitterVector, receiverVector;
+	float3 v, emitterVector;
 	
 	v = getVector( emitter->pos, receiver->pos);
 	distance = magnitude( v);
@@ -1426,33 +1456,47 @@ float surfelShadow(Surfel* receiver, Surfel* emitter)
 
 CUTBoolean occlusion(int passes, vector<Surfel> &pc)
 {
-	float sshadow;
+	float sshadow, sshadow_total;
+	float3 recVec;
 
+	sshadow = 0.0f;
 	for (int k=1; k <= passes; k++)
 	{
 		for (unsigned int i=0; i < pc.size(); i++)
 		{
-			sshadow = .0f;
+			sshadow_total = .0f;
+			if (k==1) {
+				pc[i].bentNormal = pc[i].normal;
+			}
 			for (unsigned int j=0; j < pc.size(); j++)
 			{
 				if (i!=j) {
 					if (k == 1)
 					{
-						sshadow += surfelShadow( &pc[i], &pc[j]);
+						sshadow = surfelShadow( &pc[i], &pc[j], recVec);
+						sshadow_total += sshadow;
+						pc[i].bentNormal.x -= sshadow * recVec.x;
+						pc[i].bentNormal.y -= sshadow * recVec.y;
+						pc[i].bentNormal.z -= sshadow * recVec.z;
 					}
 					else if (k == 2)
 					{
-						sshadow += surfelShadow( &pc[i], &pc[j]) * pc[j].accessibility;
+						sshadow = surfelShadow( &pc[i], &pc[j], recVec) * pc[j].accessibility;
+						sshadow_total += sshadow;
+						pc[i].bentNormal.x -= sshadow * recVec.x;
+						pc[i].bentNormal.y -= sshadow * recVec.y;
+						pc[i].bentNormal.z -= sshadow * recVec.z;
 					}
 				}
 			}
 			if (k == 1)
 			{
-				pc[i].accessibility = 1.f - sshadow;
+				pc[i].accessibility = 1.f - sshadow_total;
+				
 			}
 			else if (k == 2)
 			{
-				pc[i].acc_2nd_pass = 1.f - sshadow;
+				pc[i].acc_2nd_pass = 1.f - sshadow_total;
 			}
 		}
 	}

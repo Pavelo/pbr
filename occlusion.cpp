@@ -892,13 +892,13 @@ void displayBentNormal(Solid* model, vector<Surfel> &pc)
 	glBegin(GL_TRIANGLES);
 	for (unsigned int i=0; i < model->f.size(); i++)
 	{
-		glNormal3f(pc[model->f[i].n.x-1].normal.x, pc[model->f[i].n.x-1].normal.y, pc[model->f[i].n.x-1].normal.z);
+		glNormal3f(pc[model->f[i].v.x-1].bentNormal.x, pc[model->f[i].v.x-1].bentNormal.y, pc[model->f[i].v.x-1].bentNormal.z);
 		glVertex3f(model->v[model->f[i].v.x-1].pos.x, model->v[model->f[i].v.x-1].pos.y, model->v[model->f[i].v.x-1].pos.z);
 		
-		glNormal3f(pc[model->f[i].n.y-1].normal.x, pc[model->f[i].n.y-1].normal.y, pc[model->f[i].n.y-1].normal.z);
+		glNormal3f(pc[model->f[i].v.y-1].bentNormal.x, pc[model->f[i].v.y-1].bentNormal.y, pc[model->f[i].v.y-1].bentNormal.z);
 		glVertex3f(model->v[model->f[i].v.y-1].pos.x, model->v[model->f[i].v.y-1].pos.y, model->v[model->f[i].v.y-1].pos.z);
 		
-		glNormal3f(pc[model->f[i].n.z-1].normal.x, pc[model->f[i].n.z-1].normal.y, pc[model->f[i].n.z-1].normal.z);
+		glNormal3f(pc[model->f[i].v.z-1].bentNormal.x, pc[model->f[i].v.z-1].bentNormal.y, pc[model->f[i].v.z-1].bentNormal.z);
 		glVertex3f(model->v[model->f[i].v.z-1].pos.x, model->v[model->f[i].v.z-1].pos.y, model->v[model->f[i].v.z-1].pos.z);
 	}
 	glEnd();

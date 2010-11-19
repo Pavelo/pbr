@@ -121,8 +121,9 @@ vector<Surfel> pointCloud;
 int slices;
 float theta;
 unsigned int view_model = POLYS;
-float light_rotate_y = 0.0f;
-float light_orientation[] = {0, 0, 1, 0};
+float light_rotate_x = 0.0, light_rotate_y = 0.0f;
+float light_orientation[] = {0, 1, 1, 0};
+bool altPressed = false;
 int counter = 0;
 
 // mouse controls
@@ -422,14 +423,15 @@ void display()
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
 	
-	glPushMatrix();
-	glRotatef( light_rotate_y, 0.0, 1.0, 0.0);
-	glLightfv(GL_LIGHT0, GL_POSITION, light_orientation);
-	glPopMatrix();
-	
     glTranslatef(translate.x, translate.y, translate.z);
     glRotatef(rotate_x, 1.0, 0.0, 0.0);
     glRotatef(rotate_y, 0.0, 1.0, 0.0);
+	
+	glPushMatrix();
+		glRotatef( light_rotate_x, 1.0, 0.0, 0.0);
+		glRotatef( light_rotate_y, 0.0, 1.0, 0.0);
+		glLightfv(GL_LIGHT0, GL_POSITION, light_orientation);
+	glPopMatrix();
 
 	switch (view_model) {
 		case POLYS:
@@ -546,10 +548,17 @@ void keyboard(unsigned char key, int /*x*/, int /*y*/)
 			light_rotate_y += 90.0f - fmod( light_rotate_y, 90.0f);
 			break;
 			
-	// press space to reset camera view
+	// press space to reset camera view, or alt+space to reset lights position
 		case 32:
-			rotate_x = rotate_y = translate.x = translate.y = 0.0;
-			translate.z = -10.0;
+			if ( glutGetModifiers() == GLUT_ACTIVE_ALT )
+			{
+				light_rotate_x = light_rotate_y = 0.0;
+			}
+			else
+			{
+				rotate_x = rotate_y = translate.x = translate.y = 0.0;
+				translate.z = -10.0;
+			}
 			break;
 
 	// show help
@@ -567,16 +576,16 @@ void specialKeys(int key, int, int)
 {
 	switch (key) {
 		case GLUT_KEY_UP:
-			translate.y += .1f;
-			break;
-		case GLUT_KEY_DOWN:
 			translate.y -= .1f;
 			break;
+		case GLUT_KEY_DOWN:
+			translate.y += .1f;
+			break;
 		case GLUT_KEY_RIGHT:
-			translate.x += .1f;
+			translate.x -= .1f;
 			break;
 		case GLUT_KEY_LEFT:
-			translate.x -= .1f;
+			translate.x += .1f;
 			break;
 		default:
 			break;
@@ -588,6 +597,12 @@ void specialKeys(int key, int, int)
 ////////////////////////////////////////////////////////////////////////////////
 void mouse(int button, int state, int x, int y)
 {
+	if (glutGetModifiers() == GLUT_ACTIVE_ALT) {
+		altPressed = true;
+	} else {
+		altPressed = false;
+	}
+
     if (state == GLUT_DOWN) {
         mouse_buttons |= 1<<button;
     } else if (state == GLUT_UP) {
@@ -605,11 +620,28 @@ void motion(int x, int y)
     dx = x - mouse_old_x;
     dy = y - mouse_old_y;
 
-    if (mouse_buttons & 1) {
-        rotate_x += dy * 0.2;
-        rotate_y += dx * 0.2;
-    } else if (mouse_buttons & 4) {
-        translate.z += dy * 0.02;
+    if (mouse_buttons & 1)
+	{
+		if (altPressed)
+		{
+			light_rotate_x += dy * 0.2;
+			light_rotate_y += dx * 0.2;
+		}
+		else
+		{
+			rotate_x += dy * 0.2;
+			rotate_y += dx * 0.2;
+		}
+    }
+	else if (mouse_buttons & 4)
+	{
+		if (altPressed)
+		{
+		}
+		else
+		{
+			translate.z += dy * 0.02;
+		}
     }
 
     mouse_old_x = x;
@@ -1606,17 +1638,21 @@ string help()
 	msg += "--------\n";
 	msg += "\n";
 	msg += "Keyboard:\n";
-	msg += "1        view mesh vertexes (equivalent to surfels position)\n";
-	msg += "2        view surfel cloud representation\n";
-	msg += "3        view polygonal mesh\n";
-	msg += "4        view occlusion representation\n";
-	msg += "l        rotate scene light\n";
-	msg += "k        reset light position\n";
-	msg += "SPACE    reset camera view to initial values\n";
+	msg += "1 ............ view mesh vertexes (equivalent to surfels position)\n";
+	msg += "2 ............ view surfel cloud representation\n";
+	msg += "3 ............ view polygonal mesh\n";
+	msg += "4 ............ view single pass occlusion representation\n";
+	msg += "5 ............ view double pass occlusion representation\n";
+	msg += "6 ............ view shading using bent normals\n";
+	msg += "l ............ rotate scene light\n";
+	msg += "k ............ rotate scene light in big steps\n";
+	msg += "SPACE ........ reset camera view to initial values\n";
+	msg += "alt + SPACE .. reset light position to initial values\n";
 	msg += "\n";
 	msg += "Mouse:\n";
-	msg += "primary button (hold down while dragging)      rotate object\n";
-	msg += "secondary button (hold down while dragging)    zoom-in or zoom-out\n";
+	msg += "primary button (hold down while dragging) .......... rotate scene\n";
+	msg += "secondary button (hold down while dragging) ........ zoom-in or zoom-out\n";
+	msg += "alt + primary button (hold down while dragging) .... rotate light\n";
 	
 	return msg;
 }

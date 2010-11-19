@@ -1465,9 +1465,7 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc)
 		for (unsigned int i=0; i < pc.size(); i++)
 		{
 			sshadow_total = .0f;
-			if (k==1) {
-				pc[i].bentNormal = pc[i].normal;
-			}
+			pc[i].bentNormal = pc[i].normal;
 			for (unsigned int j=0; j < pc.size(); j++)
 			{
 				if (i!=j) {
@@ -1475,9 +1473,6 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc)
 					{
 						sshadow = surfelShadow( &pc[i], &pc[j], recVec);
 						sshadow_total += sshadow;
-						pc[i].bentNormal.x -= sshadow * recVec.x;
-						pc[i].bentNormal.y -= sshadow * recVec.y;
-						pc[i].bentNormal.z -= sshadow * recVec.z;
 					}
 					else if (k == 2)
 					{
@@ -1497,6 +1492,7 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc)
 			else if (k == 2)
 			{
 				pc[i].acc_2nd_pass = 1.f - sshadow_total;
+				pc[i].bentNormal = normalizeVector( pc[i].bentNormal);
 			}
 		}
 	}

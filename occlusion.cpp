@@ -125,6 +125,7 @@ float light_rotate_x = 0.0, light_rotate_y = 0.0f;
 float light_orientation[] = {0, 1, 1, 0};
 bool altPressed = false;
 int counter = 0;
+GLuint v,f,f2,p;
 
 // mouse controls
 int mouse_old_x, mouse_old_y;
@@ -183,6 +184,11 @@ void drawCircle();
 void displayOcclusion( Solid* s, vector<Surfel> &pc);
 void displayOcclusionDoublePass( Solid* s, vector<Surfel> &pc);
 void displayBentNormal( Solid* model, vector<Surfel> &pc);
+
+// GLSL functionality
+char* textFileRead(char *fn);
+int textFileWrite(char *fn, char *s);
+void setShaders();
 
 // rendering callbacks
 void display();
@@ -278,6 +284,18 @@ CUTBoolean initGL(int argc, char **argv)
         fflush(stderr);
         return CUTFalse;
     }
+	if (!glewIsSupported("GL_ARB_fragment_shader"))
+	{
+		cerr << "GL_ARB_fragment_shader extension is not available!" << endl;
+	}
+	if (!glewIsSupported("GL_ARB_vertex_shader"))
+	{
+		cerr << "GL_ARB_vertex_shader extension is not available!" << endl;
+	}
+	if (!glewIsSupported("GL_ARB_shader_objects"))
+	{
+		cerr << "GL_ARB_shader_objects extension is not available!" << endl;
+	}
 
     // default initialization
     glClearColor(0.1, .3, .3, 1.0);
@@ -294,6 +312,9 @@ CUTBoolean initGL(int argc, char **argv)
 	// lighting
 	setLighting();
 	glEnable(GL_LIGHTING);
+	
+	// shading
+	setShaders();
 
     CUT_CHECK_ERROR_GL();
 
@@ -881,7 +902,7 @@ CUTBoolean loadOBJ(const char* path, Solid* model)
 void drawSolid(Solid* model)
 {
 //	glMaterialfv(GL_FRONT, GL_AMBIENT, model->ambient);
-	glMaterialfv(GL_FRONT, GL_DIFFUSE, model->diffuse);
+//	glMaterialfv(GL_FRONT, GL_DIFFUSE, model->diffuse);
 //	glMaterialfv(GL_FRONT, GL_SPECULAR, model->specular);
 //	glMaterialf(GL_FRONT, GL_SHININESS, model->shininess);
 	
@@ -1655,4 +1676,79 @@ string help()
 	msg += "alt + primary button (hold down while dragging) .... rotate light\n";
 	
 	return msg;
+}
+
+char* textFileRead(char *fn) {
+	
+	
+	FILE *fp;
+	char *content = NULL;
+	
+	int count=0;
+	
+	if (fn != NULL) {
+		fp = fopen(fn,"rt");
+		
+		if (fp != NULL) {
+			
+			fseek(fp, 0, SEEK_END);
+			count = ftell(fp);
+			rewind(fp);
+			
+			if (count > 0) {
+				content = (char *)malloc(sizeof(char) * (count+1));
+				count = fread(content,sizeof(char),count,fp);
+				content[count] = '\0';
+			}
+			fclose(fp);
+		}
+	}
+	return content;
+}
+
+int textFileWrite(char *fn, char *s) {
+	
+	FILE *fp;
+	int status = 0;
+	
+	if (fn != NULL) {
+		fp = fopen(fn,"w");
+		
+		if (fp != NULL) {
+			
+			if (fwrite(s,sizeof(char),strlen(s),fp) == strlen(s))
+				status = 1;
+			fclose(fp);
+		}
+	}
+	return(status);
+}
+
+void setShaders() {
+	
+	char *vs = NULL,*fs = NULL;
+	v = glCreateShader(GL_VERTEX_SHADER);
+	f = glCreateShader(GL_FRAGMENT_SHADER);
+	
+	
+	vs = textFileRead("/Developer/GPU Computing/C/src/occlusion/GLSL/toon.vert");
+	fs = textFileRead("/Developer/GPU Computing/C/src/occlusion/GLSL/toon.frag");
+	
+	const char * ff = fs;
+	const char * vv = vs;
+	
+	glShaderSource(v, 1, &vv,NULL);
+	glShaderSource(f, 1, &ff,NULL);
+	
+	free(vs);free(fs);
+	
+	glCompileShader(v);
+	glCompileShader(f);
+	
+	p = glCreateProgram();
+	glAttachShader(p,v);
+	glAttachShader(p,f);
+	
+	glLinkProgram(p);
+	glUseProgram(p);
 }

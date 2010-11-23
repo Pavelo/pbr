@@ -124,8 +124,8 @@ unsigned int view_model = POLYS;
 float light_rotate_x = 0.0, light_rotate_y = 0.0f;
 float light_orientation[] = {0, 1, 1, 0};
 bool altPressed = false;
+GLuint shaderSelected = 0, shaderID = 0;
 int counter = 0;
-GLuint v,f,f2,p;
 
 // mouse controls
 int mouse_old_x, mouse_old_y;
@@ -188,7 +188,9 @@ void displayBentNormal( Solid* model, vector<Surfel> &pc);
 // GLSL functionality
 char* textFileRead(char *fn);
 int textFileWrite(char *fn, char *s);
-void setShaders();
+void printShaderInfoLog(GLuint obj);
+void printProgramInfoLog(GLuint obj);
+GLuint setShaders( char* vertexShaderPath, char* fragmentShaderPath);
 
 // rendering callbacks
 void display();
@@ -314,8 +316,10 @@ CUTBoolean initGL(int argc, char **argv)
 	glEnable(GL_LIGHTING);
 	
 	// shading
-	setShaders();
-
+	char vs_path[] = "/Developer/GPU Computing/C/src/occlusion/GLSL/toon.vert";
+	char fs_path[] = "/Developer/GPU Computing/C/src/occlusion/GLSL/toon.frag";
+	shaderID = setShaders( vs_path, fs_path);
+	
     CUT_CHECK_ERROR_GL();
 
     return CUTTrue;
@@ -454,6 +458,8 @@ void display()
 		glLightfv(GL_LIGHT0, GL_POSITION, light_orientation);
 	glPopMatrix();
 
+	glUseProgram(shaderSelected);
+	
 	switch (view_model) {
 		case POLYS:
 			drawSolid(h_imesh);
@@ -534,19 +540,19 @@ void keyboard(unsigned char key, int /*x*/, int /*y*/)
 			view_model = SURFELS;
 			break;
 			
-	// polygonal view
-		case '3':
-			view_model = POLYS;
-			break;
-
 	// polygonal view, occlusion rendering
-		case '4':
+		case '3':
 			view_model = OCCLUSION;
 			break;
 
 	// polygonal view, double pass occlusion
-		case '5':
+		case '4':
 			view_model = OCC_DOUBLE;
+			break;
+
+	// polygonal view
+		case '5':
+			view_model = POLYS;
 			break;
 
 	// polygonal view, bent normal rendering
@@ -561,14 +567,22 @@ void keyboard(unsigned char key, int /*x*/, int /*y*/)
 		
 	// rotate light
 		case 'l':
+		case 'L':
 			light_rotate_y += 9.0f;
 			break;
 
 	// rotate light in big steps
 		case 'k':
+		case 'K':
 			light_rotate_y += 90.0f - fmod( light_rotate_y, 90.0f);
 			break;
 			
+	// use shaders
+		case 's':
+		case 'S':
+			shaderSelected = shaderSelected ? 0 : shaderID;
+			break;
+
 	// press space to reset camera view, or alt+space to reset lights position
 		case 32:
 			if ( glutGetModifiers() == GLUT_ACTIVE_ALT )
@@ -940,7 +954,7 @@ void drawSolid(Solid* model)
 
 void displayBentNormal(Solid* model, vector<Surfel> &pc)
 {
-	glMaterialfv(GL_FRONT, GL_DIFFUSE, model->diffuse);
+//	glMaterialfv(GL_FRONT, GL_DIFFUSE, model->diffuse);
 
 	glBegin(GL_TRIANGLES);
 	for (unsigned int i=0; i < model->f.size(); i++)
@@ -1214,19 +1228,27 @@ CUTBoolean preprocessing(int argc, char** argv)
 	}
 	filename = *cfilename;
 	path = dir + filename;
+	cout << "Loading mesh... ";
+	cout.flush();
 	if ( !loadOBJ(path.c_str(), h_imesh) )
 	{
 		cerr << "File \"" << filename << "\" not found!" << endl;
 		return CUTFalse;
 	}
+	cout << "done" << endl;
 	
-	// winged-edge structure creation
+	// half-edge structure creation
+	cout << "Creating half-edge structure... ";
+	cout.flush();
 	createHalfedgeList(h_imesh);
+	cout << "done" << endl;
 	
 	// calculate face area (offline)
 	faceArea(h_imesh);
 	
 	// create or load point cloud
+	cout << "Loading surfels cloud... ";
+	cout.flush();
 	dir = "/Developer/GPU Computing/C/src/occlusion/pointClouds/";
 	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "cloud")) {
 		cutGetCmdLineArgumentstr( argc, (const char**)argv, "cloud", cfilename );
@@ -1265,18 +1287,19 @@ CUTBoolean preprocessing(int argc, char** argv)
 		} else {
 			cout << "\"" << filename << "\" loaded correctly" << endl;
 		}
-
 	}
 
 	// calculate occlusion
 	int multipass;
-	cout << "Computing occlusion..." << endl;
 	if ( cutCheckCmdLineFlag( argc, (const char**)argv, "multipass")) {
 		cutGetCmdLineArgumenti( argc, (const char**)argv, "multipass", &multipass);
 	} else {
 		multipass = 1;
 	}
+	cout << "Computing occlusion... ";
+	cout.flush();
 	occlusion( multipass, pointCloud);
+	cout << "done" << endl;
 
 	// calculate theta angle of the slices of circle for surfel representation
 	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "surfel_slices")) {
@@ -1678,9 +1701,8 @@ string help()
 	return msg;
 }
 
-char* textFileRead(char *fn) {
-	
-	
+char* textFileRead(char *fn)
+{
 	FILE *fp;
 	char *content = NULL;
 	
@@ -1706,8 +1728,8 @@ char* textFileRead(char *fn) {
 	return content;
 }
 
-int textFileWrite(char *fn, char *s) {
-	
+int textFileWrite(char *fn, char *s)
+{
 	FILE *fp;
 	int status = 0;
 	
@@ -1724,31 +1746,80 @@ int textFileWrite(char *fn, char *s) {
 	return(status);
 }
 
-void setShaders() {
+GLuint setShaders(char* vertexShaderPath, char* fragmentShaderPath)
+{
+	GLuint v, f, p;
+	char *vs = NULL, *fs = NULL;
 	
-	char *vs = NULL,*fs = NULL;
 	v = glCreateShader(GL_VERTEX_SHADER);
 	f = glCreateShader(GL_FRAGMENT_SHADER);
 	
-	
-	vs = textFileRead("/Developer/GPU Computing/C/src/occlusion/GLSL/toon.vert");
-	fs = textFileRead("/Developer/GPU Computing/C/src/occlusion/GLSL/toon.frag");
+	vs = textFileRead(vertexShaderPath);
+	fs = textFileRead(fragmentShaderPath);
 	
 	const char * ff = fs;
 	const char * vv = vs;
 	
-	glShaderSource(v, 1, &vv,NULL);
-	glShaderSource(f, 1, &ff,NULL);
+	glShaderSource(v, 1, &vv, NULL);
+	glShaderSource(f, 1, &ff, NULL);
 	
-	free(vs);free(fs);
+	free(vs);
+	free(fs);
 	
 	glCompileShader(v);
 	glCompileShader(f);
 	
 	p = glCreateProgram();
+	
 	glAttachShader(p,v);
 	glAttachShader(p,f);
 	
 	glLinkProgram(p);
 	glUseProgram(p);
+	
+//	printShaderInfoLog(v);
+//	printShaderInfoLog(f);
+//	printProgramInfoLog(p);
+	
+	return p;
+}
+
+// Prints out shader info (debugging!)
+void printShaderInfoLog(GLuint obj)
+{
+    GLint infologLength = 0;
+    GLsizei charsWritten = 0;
+    char *infoLog;
+	
+    glGetShaderiv(obj, GL_INFO_LOG_LENGTH, &infologLength);
+	
+    if (infologLength > 0)
+    {
+        infoLog = (char *)malloc(infologLength);
+        glGetShaderInfoLog(obj, infologLength, &charsWritten, infoLog);
+		printf("printShaderInfoLog: %s\n",infoLog);
+        free(infoLog);
+	}else{
+		printf("Shader Info Log: OK\n");
+	}
+}
+
+// Prints out shader info (debugging!)
+void printProgramInfoLog(GLuint obj)
+{
+    GLint infologLength = 0;
+    GLsizei charsWritten = 0;
+    char *infoLog;
+	
+	glGetProgramiv(obj, GL_INFO_LOG_LENGTH, &infologLength);
+	
+    if (infologLength > 0)
+    {
+        infoLog = (char *)malloc(infologLength);
+        glGetProgramInfoLog(obj, infologLength, &charsWritten, infoLog);
+		printf("printProgramInfoLog: %s\n",infoLog);
+        free(infoLog);
+    }else{
+		printf("Program Info Log: OK\n");
+	}
 }

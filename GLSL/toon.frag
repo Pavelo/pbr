@@ -13,7 +13,7 @@ void main()
 	intensity = max(dot(lightDir,n),0.0); 
 
 	if (intensity > 0.98)
-		color = vec4(0.8,0.8,0.8,1.0);
+		color = vec4(0.6,0.6,0.8,1.0);
 	else if (intensity > 0.5)
 		color = vec4(0.4,0.4,0.8,1.0);	
 	else if (intensity > 0.25)

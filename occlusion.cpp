@@ -125,6 +125,7 @@ float light_rotate_x = 0.0, light_rotate_y = 0.0f;
 float light_orientation[] = {0, 1, 1, 0};
 bool altPressed = false;
 GLuint shaderSelected = 0, shaderID = 0;
+GLint loc0;
 int counter = 0;
 
 // mouse controls
@@ -300,7 +301,7 @@ CUTBoolean initGL(int argc, char **argv)
 	}
 
     // default initialization
-    glClearColor(0.1, .3, .3, 1.0);
+    glClearColor(0.1, 0.3, 0.3, 1.0);
     glEnable(GL_DEPTH_TEST);
 
     // viewport
@@ -313,11 +314,10 @@ CUTBoolean initGL(int argc, char **argv)
 	
 	// lighting
 	setLighting();
-	glEnable(GL_LIGHTING);
 	
 	// shading
-	char vs_path[] = "/Developer/GPU Computing/C/src/occlusion/GLSL/toon.vert";
-	char fs_path[] = "/Developer/GPU Computing/C/src/occlusion/GLSL/toon.frag";
+	char vs_path[] = "/Developer/GPU Computing/C/src/occlusion/GLSL/dispAO.vs";
+	char fs_path[] = "/Developer/GPU Computing/C/src/occlusion/GLSL/dispAO.fs";
 	shaderID = setShaders( vs_path, fs_path);
 	
     CUT_CHECK_ERROR_GL();
@@ -916,26 +916,31 @@ CUTBoolean loadOBJ(const char* path, Solid* model)
 void drawSolid(Solid* model)
 {
 //	glMaterialfv(GL_FRONT, GL_AMBIENT, model->ambient);
-//	glMaterialfv(GL_FRONT, GL_DIFFUSE, model->diffuse);
+	glMaterialfv(GL_FRONT, GL_DIFFUSE, model->diffuse);
 //	glMaterialfv(GL_FRONT, GL_SPECULAR, model->specular);
 //	glMaterialf(GL_FRONT, GL_SHININESS, model->shininess);
 	
 //	glEnable(GL_TEXTURE_2D);
 //	glBindTexture(GL_TEXTURE_2D, model->textureId);
-	
+
+	glEnable(GL_LIGHTING);
+
 	glBegin(GL_TRIANGLES);
 	for (unsigned int i=0; i < model->f.size(); i++)
 	{
 		glNormal3f(model->vn[model->f[i].n.x-1].x, model->vn[model->f[i].n.x-1].y, model->vn[model->f[i].n.x-1].z);
 //		glTexCoord2f(model->vt[model->f[i].t.x-1].x, model->vt[model->f[i].t.x-1].y);
+		glVertexAttrib1f( loc0, pointCloud[model->f[i].v.x-1].accessibility);
 		glVertex3f(model->v[model->f[i].v.x-1].pos.x, model->v[model->f[i].v.x-1].pos.y, model->v[model->f[i].v.x-1].pos.z);
 		
 		glNormal3f(model->vn[model->f[i].n.y-1].x, model->vn[model->f[i].n.y-1].y, model->vn[model->f[i].n.y-1].z);
 //		glTexCoord2f(model->vt[model->f[i].t.y-1].x, model->vt[model->f[i].t.y-1].y);
+		glVertexAttrib1f( loc0, pointCloud[model->f[i].v.y-1].accessibility);
 		glVertex3f(model->v[model->f[i].v.y-1].pos.x, model->v[model->f[i].v.y-1].pos.y, model->v[model->f[i].v.y-1].pos.z);
 		
 		glNormal3f(model->vn[model->f[i].n.z-1].x, model->vn[model->f[i].n.z-1].y, model->vn[model->f[i].n.z-1].z);
 //		glTexCoord2f(model->vt[model->f[i].t.z-1].x, model->vt[model->f[i].t.z-1].y);
+		glVertexAttrib1f( loc0, pointCloud[model->f[i].v.z-1].accessibility);
 		glVertex3f(model->v[model->f[i].v.z-1].pos.x, model->v[model->f[i].v.z-1].pos.y, model->v[model->f[i].v.z-1].pos.z);
 		
 //		if (counter == 1)
@@ -948,27 +953,35 @@ void drawSolid(Solid* model)
 //	counter++;
 	
 	glEnd();
-	
+
+	glDisable(GL_LIGHTING);
 //	glDisable(GL_TEXTURE_2D);
 }
 
 void displayBentNormal(Solid* model, vector<Surfel> &pc)
 {
-//	glMaterialfv(GL_FRONT, GL_DIFFUSE, model->diffuse);
+	glMaterialfv(GL_FRONT, GL_DIFFUSE, model->diffuse);
+
+	glEnable(GL_LIGHTING);
 
 	glBegin(GL_TRIANGLES);
 	for (unsigned int i=0; i < model->f.size(); i++)
 	{
 		glNormal3f(pc[model->f[i].v.x-1].bentNormal.x, pc[model->f[i].v.x-1].bentNormal.y, pc[model->f[i].v.x-1].bentNormal.z);
+		glVertexAttrib1f( loc0, pointCloud[model->f[i].v.x-1].accessibility);
 		glVertex3f(model->v[model->f[i].v.x-1].pos.x, model->v[model->f[i].v.x-1].pos.y, model->v[model->f[i].v.x-1].pos.z);
 		
 		glNormal3f(pc[model->f[i].v.y-1].bentNormal.x, pc[model->f[i].v.y-1].bentNormal.y, pc[model->f[i].v.y-1].bentNormal.z);
+		glVertexAttrib1f( loc0, pointCloud[model->f[i].v.y-1].accessibility);
 		glVertex3f(model->v[model->f[i].v.y-1].pos.x, model->v[model->f[i].v.y-1].pos.y, model->v[model->f[i].v.y-1].pos.z);
 		
 		glNormal3f(pc[model->f[i].v.z-1].bentNormal.x, pc[model->f[i].v.z-1].bentNormal.y, pc[model->f[i].v.z-1].bentNormal.z);
+		glVertexAttrib1f( loc0, pointCloud[model->f[i].v.z-1].accessibility);
 		glVertex3f(model->v[model->f[i].v.z-1].pos.x, model->v[model->f[i].v.z-1].pos.y, model->v[model->f[i].v.z-1].pos.z);
 	}
 	glEnd();
+
+	glDisable(GL_LIGHTING);
 }
 
 CUTBoolean createHalfedgeList(Solid* s)
@@ -1317,10 +1330,13 @@ CUTBoolean preprocessing(int argc, char** argv)
 
 void setLighting()
 {
+	float lightModelAmbient[] = { 0.2, 0.2, 0.2, 0.2 };
+	
 	glFrontFace(GL_CCW);
 	glCullFace(GL_BACK);
 	glColorMaterial(GL_FRONT, GL_DIFFUSE);
 	glShadeModel(GL_SMOOTH);
+	glLightModelfv( GL_LIGHT_MODEL_AMBIENT, lightModelAmbient);
 	
 	glEnable(GL_CULL_FACE);
 	glEnable(GL_LIGHT0);
@@ -1328,7 +1344,6 @@ void setLighting()
 
 void drawPointCloud(vector<Surfel> &cloud)
 {
-		glDisable(GL_LIGHTING);
 	if (view_model == POINTS) {
 		glBegin(GL_POINTS);
 	}
@@ -1347,7 +1362,6 @@ void drawPointCloud(vector<Surfel> &cloud)
 	if (view_model == POINTS) {
 		glEnd();
 	}
-		glEnable(GL_LIGHTING);
 }
 
 void drawSurfel(Surfel* sf)
@@ -1375,7 +1389,6 @@ void drawPoint(Surfel* sf)
 {
 	glColor3f( 1.f, 1.f, 1.f);
 	glVertex3f( sf->pos.x, sf->pos.y, sf->pos.z );
-	
 }
 
 // dot product of NORMALIZED vectors
@@ -1578,8 +1591,6 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc)
 
 void displayOcclusion(Solid* s, vector<Surfel> &pc)
 {
-	glDisable(GL_LIGHTING);
-	
 	glBegin(GL_TRIANGLES);
 	for (unsigned int i=0; i < s->f.size(); i++)
 	{
@@ -1593,14 +1604,10 @@ void displayOcclusion(Solid* s, vector<Surfel> &pc)
 		glVertex3f(s->v[s->f[i].v.z-1].pos.x, s->v[s->f[i].v.z-1].pos.y, s->v[s->f[i].v.z-1].pos.z);
 	}
 	glEnd();
-	
-	glEnable(GL_LIGHTING);
 }
 
 void displayOcclusionDoublePass(Solid* s, vector<Surfel> &pc)
 {
-	glDisable(GL_LIGHTING);
-	
 	glBegin(GL_TRIANGLES);
 	for (unsigned int i=0; i < s->f.size(); i++)
 	{
@@ -1614,8 +1621,6 @@ void displayOcclusionDoublePass(Solid* s, vector<Surfel> &pc)
 		glVertex3f(s->v[s->f[i].v.z-1].pos.x, s->v[s->f[i].v.z-1].pos.y, s->v[s->f[i].v.z-1].pos.z);
 	}
 	glEnd();
-	
-	glEnable(GL_LIGHTING);
 }
 
 CUTBoolean loadPointCloud(const char* path, vector<Surfel> &pc)
@@ -1777,6 +1782,8 @@ GLuint setShaders(char* vertexShaderPath, char* fragmentShaderPath)
 	glLinkProgram(p);
 	glUseProgram(p);
 	
+	loc0 = glGetAttribLocation( p, "accessibility");
+		
 //	printShaderInfoLog(v);
 //	printShaderInfoLog(f);
 //	printProgramInfoLog(p);

@@ -126,6 +126,7 @@ float light_orientation[] = {0, 1, 1, 0};
 bool altPressed = false;
 GLuint shaderSelected = 0, shaderID = 0;
 GLint loc0;
+bool ao_1pass = true;
 int counter = 0;
 
 // mouse controls
@@ -583,6 +584,12 @@ void keyboard(unsigned char key, int /*x*/, int /*y*/)
 			shaderSelected = shaderSelected ? 0 : shaderID;
 			break;
 
+	// switch between one and two passes of ambient occlusion
+		case 'e':
+		case 'E':
+			ao_1pass = !ao_1pass;
+			break;
+			
 	// press space to reset camera view, or alt+space to reset lights position
 		case 32:
 			if ( glutGetModifiers() == GLUT_ACTIVE_ALT )
@@ -930,17 +937,20 @@ void drawSolid(Solid* model)
 	{
 		glNormal3f(model->vn[model->f[i].n.x-1].x, model->vn[model->f[i].n.x-1].y, model->vn[model->f[i].n.x-1].z);
 //		glTexCoord2f(model->vt[model->f[i].t.x-1].x, model->vt[model->f[i].t.x-1].y);
-		glVertexAttrib1f( loc0, pointCloud[model->f[i].v.x-1].accessibility);
+		if (ao_1pass) glVertexAttrib1f( loc0, pointCloud[model->f[i].v.x-1].accessibility);
+		else          glVertexAttrib1f( loc0, pointCloud[model->f[i].v.x-1].acc_2nd_pass);
 		glVertex3f(model->v[model->f[i].v.x-1].pos.x, model->v[model->f[i].v.x-1].pos.y, model->v[model->f[i].v.x-1].pos.z);
 		
 		glNormal3f(model->vn[model->f[i].n.y-1].x, model->vn[model->f[i].n.y-1].y, model->vn[model->f[i].n.y-1].z);
 //		glTexCoord2f(model->vt[model->f[i].t.y-1].x, model->vt[model->f[i].t.y-1].y);
-		glVertexAttrib1f( loc0, pointCloud[model->f[i].v.y-1].accessibility);
+		if (ao_1pass) glVertexAttrib1f( loc0, pointCloud[model->f[i].v.y-1].accessibility);
+		else          glVertexAttrib1f( loc0, pointCloud[model->f[i].v.y-1].acc_2nd_pass);
 		glVertex3f(model->v[model->f[i].v.y-1].pos.x, model->v[model->f[i].v.y-1].pos.y, model->v[model->f[i].v.y-1].pos.z);
 		
 		glNormal3f(model->vn[model->f[i].n.z-1].x, model->vn[model->f[i].n.z-1].y, model->vn[model->f[i].n.z-1].z);
 //		glTexCoord2f(model->vt[model->f[i].t.z-1].x, model->vt[model->f[i].t.z-1].y);
-		glVertexAttrib1f( loc0, pointCloud[model->f[i].v.z-1].accessibility);
+		if (ao_1pass) glVertexAttrib1f( loc0, pointCloud[model->f[i].v.z-1].accessibility);
+		else          glVertexAttrib1f( loc0, pointCloud[model->f[i].v.z-1].acc_2nd_pass);
 		glVertex3f(model->v[model->f[i].v.z-1].pos.x, model->v[model->f[i].v.z-1].pos.y, model->v[model->f[i].v.z-1].pos.z);
 		
 //		if (counter == 1)
@@ -968,15 +978,18 @@ void displayBentNormal(Solid* model, vector<Surfel> &pc)
 	for (unsigned int i=0; i < model->f.size(); i++)
 	{
 		glNormal3f(pc[model->f[i].v.x-1].bentNormal.x, pc[model->f[i].v.x-1].bentNormal.y, pc[model->f[i].v.x-1].bentNormal.z);
-		glVertexAttrib1f( loc0, pointCloud[model->f[i].v.x-1].accessibility);
+		if (ao_1pass) glVertexAttrib1f( loc0, pointCloud[model->f[i].v.x-1].accessibility);
+		else          glVertexAttrib1f( loc0, pointCloud[model->f[i].v.x-1].acc_2nd_pass);
 		glVertex3f(model->v[model->f[i].v.x-1].pos.x, model->v[model->f[i].v.x-1].pos.y, model->v[model->f[i].v.x-1].pos.z);
 		
 		glNormal3f(pc[model->f[i].v.y-1].bentNormal.x, pc[model->f[i].v.y-1].bentNormal.y, pc[model->f[i].v.y-1].bentNormal.z);
-		glVertexAttrib1f( loc0, pointCloud[model->f[i].v.y-1].accessibility);
+		if (ao_1pass) glVertexAttrib1f( loc0, pointCloud[model->f[i].v.y-1].accessibility);
+		else          glVertexAttrib1f( loc0, pointCloud[model->f[i].v.y-1].acc_2nd_pass);
 		glVertex3f(model->v[model->f[i].v.y-1].pos.x, model->v[model->f[i].v.y-1].pos.y, model->v[model->f[i].v.y-1].pos.z);
 		
 		glNormal3f(pc[model->f[i].v.z-1].bentNormal.x, pc[model->f[i].v.z-1].bentNormal.y, pc[model->f[i].v.z-1].bentNormal.z);
-		glVertexAttrib1f( loc0, pointCloud[model->f[i].v.z-1].accessibility);
+		if (ao_1pass) glVertexAttrib1f( loc0, pointCloud[model->f[i].v.z-1].accessibility);
+		else          glVertexAttrib1f( loc0, pointCloud[model->f[i].v.z-1].acc_2nd_pass);
 		glVertex3f(model->v[model->f[i].v.z-1].pos.x, model->v[model->f[i].v.z-1].pos.y, model->v[model->f[i].v.z-1].pos.z);
 	}
 	glEnd();

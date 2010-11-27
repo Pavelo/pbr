@@ -122,7 +122,7 @@ int slices;
 float theta;
 unsigned int view_model = POLYS;
 float light_rotate_x = 0.0, light_rotate_y = 0.0f;
-float light_orientation[] = {0, 1, 1, 0};
+float light_orientation[] = {0.0, 0.2, 0.8, 0.0};
 bool altPressed = false;
 GLuint shaderSelected = 0, shaderID = 0;
 GLint loc0;
@@ -317,8 +317,8 @@ CUTBoolean initGL(int argc, char **argv)
 	setLighting();
 	
 	// shading
-	char vs_path[] = "/Developer/GPU Computing/C/src/occlusion/GLSL/dispAO.vs";
-	char fs_path[] = "/Developer/GPU Computing/C/src/occlusion/GLSL/dispAO.fs";
+	char vs_path[] = "/Developer/GPU Computing/C/src/occlusion/GLSL/dispAO_perFrag.vs";
+	char fs_path[] = "/Developer/GPU Computing/C/src/occlusion/GLSL/dispAO_perFrag.fs";
 	shaderID = setShaders( vs_path, fs_path);
 	
     CUT_CHECK_ERROR_GL();
@@ -454,8 +454,8 @@ void display()
     glRotatef(rotate_y, 0.0, 1.0, 0.0);
 	
 	glPushMatrix();
-		glRotatef( light_rotate_x, 1.0, 0.0, 0.0);
 		glRotatef( light_rotate_y, 0.0, 1.0, 0.0);
+		glRotatef( light_rotate_x, 1.0, 0.0, 0.0);
 		glLightfv(GL_LIGHT0, GL_POSITION, light_orientation);
 	glPopMatrix();
 
@@ -922,7 +922,7 @@ CUTBoolean loadOBJ(const char* path, Solid* model)
 
 void drawSolid(Solid* model)
 {
-//	glMaterialfv(GL_FRONT, GL_AMBIENT, model->ambient);
+	glMaterialfv(GL_FRONT, GL_AMBIENT, model->ambient);
 	glMaterialfv(GL_FRONT, GL_DIFFUSE, model->diffuse);
 //	glMaterialfv(GL_FRONT, GL_SPECULAR, model->specular);
 //	glMaterialf(GL_FRONT, GL_SHININESS, model->shininess);
@@ -970,6 +970,7 @@ void drawSolid(Solid* model)
 
 void displayBentNormal(Solid* model, vector<Surfel> &pc)
 {
+	glMaterialfv(GL_FRONT, GL_AMBIENT, model->ambient);
 	glMaterialfv(GL_FRONT, GL_DIFFUSE, model->diffuse);
 
 	glEnable(GL_LIGHTING);
@@ -1343,7 +1344,7 @@ CUTBoolean preprocessing(int argc, char** argv)
 
 void setLighting()
 {
-	float lightModelAmbient[] = { 0.2, 0.2, 0.2, 0.2 };
+	float lightModelAmbient[] = { 1.0, 1.0, 1.0, 1.0 };
 	
 	glFrontFace(GL_CCW);
 	glCullFace(GL_BACK);

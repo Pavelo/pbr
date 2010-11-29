@@ -41,7 +41,8 @@ using namespace std;
 #define POLYS      3
 #define OCCLUSION  4
 #define OCC_DOUBLE 5
-#define BENT_NORM  6
+#define OCC_TRIPLE 6
+#define BENT_NORM  7
 
 ////////////////////////////////////////////////////////////////////////////////
 // data structures
@@ -105,6 +106,7 @@ struct _Surfel {
 	float3 rot_axis;      // roation axis needed to correctly orient the surfel representation
 	float accessibility;  // accessibility value: percentage of the hemisphere above each surfel not occluded by geometry
 	float acc_2nd_pass;   // accessibility value got with two-passes computation
+	float acc_3rd_pass;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -185,6 +187,7 @@ void drawPoint( Surfel* sf);
 void drawCircle();
 void displayOcclusion( Solid* s, vector<Surfel> &pc);
 void displayOcclusionDoublePass( Solid* s, vector<Surfel> &pc);
+void displayOcclusionTriplePass( Solid* s, vector<Surfel> &pc);
 void displayBentNormal( Solid* model, vector<Surfel> &pc);
 
 // GLSL functionality
@@ -483,6 +486,10 @@ void display()
 			displayOcclusionDoublePass(h_imesh, pointCloud);
 			break;
 
+		case OCC_TRIPLE:
+			displayOcclusionTriplePass(h_imesh, pointCloud);
+			break;
+			
 		case BENT_NORM:
 			displayBentNormal(h_imesh, pointCloud);
 			break;
@@ -551,13 +558,18 @@ void keyboard(unsigned char key, int /*x*/, int /*y*/)
 			view_model = OCC_DOUBLE;
 			break;
 
-	// polygonal view
+			// polygonal view, double pass occlusion
 		case '5':
+			view_model = OCC_TRIPLE;
+			break;
+			
+			// polygonal view
+		case '6':
 			view_model = POLYS;
 			break;
 
 	// polygonal view, bent normal rendering
-		case '6':
+		case '7':
 			view_model = BENT_NORM;
 			break;
 
@@ -979,18 +991,18 @@ void displayBentNormal(Solid* model, vector<Surfel> &pc)
 	for (unsigned int i=0; i < model->f.size(); i++)
 	{
 		glNormal3f(pc[model->f[i].v.x-1].bentNormal.x, pc[model->f[i].v.x-1].bentNormal.y, pc[model->f[i].v.x-1].bentNormal.z);
-		if (ao_1pass) glVertexAttrib1f( loc0, pointCloud[model->f[i].v.x-1].accessibility);
-		else          glVertexAttrib1f( loc0, pointCloud[model->f[i].v.x-1].acc_2nd_pass);
+		if (ao_1pass) glVertexAttrib1f( loc0, pointCloud[model->f[i].v.x-1].acc_3rd_pass);
+		else          glVertexAttrib1f( loc0, pointCloud[model->f[i].v.x-1].accessibility);
 		glVertex3f(model->v[model->f[i].v.x-1].pos.x, model->v[model->f[i].v.x-1].pos.y, model->v[model->f[i].v.x-1].pos.z);
 		
 		glNormal3f(pc[model->f[i].v.y-1].bentNormal.x, pc[model->f[i].v.y-1].bentNormal.y, pc[model->f[i].v.y-1].bentNormal.z);
-		if (ao_1pass) glVertexAttrib1f( loc0, pointCloud[model->f[i].v.y-1].accessibility);
-		else          glVertexAttrib1f( loc0, pointCloud[model->f[i].v.y-1].acc_2nd_pass);
+		if (ao_1pass) glVertexAttrib1f( loc0, pointCloud[model->f[i].v.y-1].acc_3rd_pass);
+		else          glVertexAttrib1f( loc0, pointCloud[model->f[i].v.y-1].accessibility);
 		glVertex3f(model->v[model->f[i].v.y-1].pos.x, model->v[model->f[i].v.y-1].pos.y, model->v[model->f[i].v.y-1].pos.z);
 		
 		glNormal3f(pc[model->f[i].v.z-1].bentNormal.x, pc[model->f[i].v.z-1].bentNormal.y, pc[model->f[i].v.z-1].bentNormal.z);
-		if (ao_1pass) glVertexAttrib1f( loc0, pointCloud[model->f[i].v.z-1].accessibility);
-		else          glVertexAttrib1f( loc0, pointCloud[model->f[i].v.z-1].acc_2nd_pass);
+		if (ao_1pass) glVertexAttrib1f( loc0, pointCloud[model->f[i].v.z-1].acc_3rd_pass);
+		else          glVertexAttrib1f( loc0, pointCloud[model->f[i].v.z-1].accessibility);
 		glVertex3f(model->v[model->f[i].v.z-1].pos.x, model->v[model->f[i].v.z-1].pos.y, model->v[model->f[i].v.z-1].pos.z);
 	}
 	glEnd();
@@ -1568,7 +1580,8 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc)
 		for (unsigned int i=0; i < pc.size(); i++)
 		{
 			sshadow_total = .0f;
-			pc[i].bentNormal = pc[i].normal;
+			if (k == 1)
+				pc[i].bentNormal = pc[i].normal;
 			for (unsigned int j=0; j < pc.size(); j++)
 			{
 				if (i!=j) {
@@ -1581,6 +1594,11 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc)
 					{
 						sshadow = surfelShadow( &pc[i], &pc[j], recVec) * pc[j].accessibility;
 						sshadow_total += sshadow;
+					}
+					else if (k == 3)
+					{
+						sshadow = surfelShadow( &pc[i], &pc[j], recVec) * pc[j].acc_2nd_pass;
+						sshadow_total += sshadow;
 						pc[i].bentNormal.x -= sshadow * recVec.x;
 						pc[i].bentNormal.y -= sshadow * recVec.y;
 						pc[i].bentNormal.z -= sshadow * recVec.z;
@@ -1590,11 +1608,14 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc)
 			if (k == 1)
 			{
 				pc[i].accessibility = 1.f - sshadow_total;
-				
 			}
 			else if (k == 2)
 			{
 				pc[i].acc_2nd_pass = 1.f - sshadow_total;
+			}
+			else if (k == 3)
+			{
+				pc[i].acc_3rd_pass = 1.f - sshadow_total;
 				pc[i].bentNormal = normalizeVector( pc[i].bentNormal);
 			}
 		}
@@ -1632,6 +1653,23 @@ void displayOcclusionDoublePass(Solid* s, vector<Surfel> &pc)
 		glVertex3f(s->v[s->f[i].v.y-1].pos.x, s->v[s->f[i].v.y-1].pos.y, s->v[s->f[i].v.y-1].pos.z);
 		
 		glColor3f( pc[s->f[i].v.z-1].acc_2nd_pass, pc[s->f[i].v.z-1].acc_2nd_pass, pc[s->f[i].v.z-1].acc_2nd_pass);
+		glVertex3f(s->v[s->f[i].v.z-1].pos.x, s->v[s->f[i].v.z-1].pos.y, s->v[s->f[i].v.z-1].pos.z);
+	}
+	glEnd();
+}
+
+void displayOcclusionTriplePass(Solid* s, vector<Surfel> &pc)
+{
+	glBegin(GL_TRIANGLES);
+	for (unsigned int i=0; i < s->f.size(); i++)
+	{
+		glColor3f( pc[s->f[i].v.x-1].acc_3rd_pass, pc[s->f[i].v.x-1].acc_3rd_pass, pc[s->f[i].v.x-1].acc_3rd_pass);
+		glVertex3f(s->v[s->f[i].v.x-1].pos.x, s->v[s->f[i].v.x-1].pos.y, s->v[s->f[i].v.x-1].pos.z);
+		
+		glColor3f( pc[s->f[i].v.y-1].acc_3rd_pass, pc[s->f[i].v.y-1].acc_3rd_pass, pc[s->f[i].v.y-1].acc_3rd_pass);
+		glVertex3f(s->v[s->f[i].v.y-1].pos.x, s->v[s->f[i].v.y-1].pos.y, s->v[s->f[i].v.y-1].pos.z);
+		
+		glColor3f( pc[s->f[i].v.z-1].acc_3rd_pass, pc[s->f[i].v.z-1].acc_3rd_pass, pc[s->f[i].v.z-1].acc_3rd_pass);
 		glVertex3f(s->v[s->f[i].v.z-1].pos.x, s->v[s->f[i].v.z-1].pos.y, s->v[s->f[i].v.z-1].pos.z);
 	}
 	glEnd();

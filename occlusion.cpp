@@ -174,6 +174,7 @@ CUTBoolean savePointCloud( vector<Surfel> &pc, const char* path);
 CUTBoolean loadPointCloud( const char* path, vector<Surfel> &pc);
 CUTBoolean occlusion( int passes, vector<Surfel> &pc);
 float surfelShadow( Surfel* emitter, Surfel* receiver, float3 &receiverVector);
+float colorBleeding( Surfel* receiver, Surfel* emitter, float3 &receiverVector);
 
 // GL functionality
 CUTBoolean initGL( int argc, char** argv);
@@ -1557,7 +1558,7 @@ float surfelShadow(Surfel* receiver, Surfel* emitter, float3 &receiverVector)
 {
 	float distance, dSquared;
 	float3 v, emitterVector;
-	
+
 	v = getVector( emitter->pos, receiver->pos);
 	distance = magnitude( v);
 	dSquared = distance * distance;
@@ -1573,13 +1574,13 @@ float colorBleeding(Surfel* receiver, Surfel* emitter, float3 &receiverVector)
 {
 	float distance, dSquared;
 	float3 v, emitterVector;
-	
+
 	v = getVector( emitter->pos, receiver->pos);
 	distance = magnitude( v);
 	dSquared = distance * distance;
 	emitterVector = normalizeVector( v);
 	receiverVector = reverseVector( emitterVector);
-	
+
 	return ( emitter->area * clamp( dotProduct( emitter->normal, emitterVector)) * clamp( dotProduct( receiver->normal, receiverVector))
 			/ ( PI * dSquared + emitter->area) );
 }

@@ -1563,13 +1563,13 @@ float surfelShadow(Surfel* receiver, Surfel* emitter, float3 &receiverVector)
 	float distance, dSquared;
 	float3 v, emitterVector;
 
-	v = getVector( emitter->pos, receiver->pos);
+	v = getVector( receiver->pos, emitter->pos);
 	distance = magnitude( v);
 	dSquared = distance * distance;
-	emitterVector = normalizeVector( v);
-	receiverVector = reverseVector( emitterVector);
+	receiverVector = normalizeVector( v);
+	emitterVector = reverseVector( receiverVector);
 
-	return (1 - 1 / sqrt( (emitter->area / PI) / dSquared + 1))
+	return (1 - 1 / sqrt( emitter->area / (PI * dSquared) + 1))
 			* clamp( dotProduct( emitter->normal, emitterVector))
 			* clamp( 4 * dotProduct( receiver->normal, receiverVector));
 }
@@ -1585,8 +1585,8 @@ float colorBleeding(Surfel* receiver, Surfel* emitter, float3 &receiverVector)
 	emitterVector = normalizeVector( v);
 	receiverVector = reverseVector( emitterVector);
 
-	return ( emitter->area * clamp( dotProduct( emitter->normal, emitterVector)) * clamp( dotProduct( receiver->normal, receiverVector))
-			/ ( PI * dSquared + emitter->area) );
+	return emitter->area * clamp( dotProduct( emitter->normal, emitterVector)) * clamp( dotProduct( receiver->normal, receiverVector))
+			/ ( PI * dSquared + emitter->area);
 }
 
 CUTBoolean occlusion(int passes, vector<Surfel> &pc)

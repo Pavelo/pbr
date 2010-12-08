@@ -173,8 +173,9 @@ void setLighting();
 CUTBoolean createPointCloud( Solid* s, vector<Surfel> &pc);
 CUTBoolean savePointCloud( vector<Surfel> &pc, const char* path);
 CUTBoolean loadPointCloud( const char* path, vector<Surfel> &pc);
-CUTBoolean occlusion( int passes, vector<Surfel> &pc);
-float surfelShadow( Surfel* emitter, Surfel* receiver, float3 &receiverVector);
+CUTBoolean occlusion( int passes, vector<Surfel> &pc, Solid* s);
+float formFactor_pA( Surfel* receiver, Face* emitterF);
+float surfelShadow( Surfel* emitter, Surfel* receiver, float3 &receiverVector, Face* ef);
 float colorBleeding( Surfel* receiver, Surfel* emitter, float3 &receiverVector);
 
 // GL functionality
@@ -316,7 +317,7 @@ CUTBoolean initGL(int argc, char **argv)
     // projection
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    gluPerspective(45.0, (GLfloat) window_width / (GLfloat) window_height, 0.1, 30.0);
+    gluPerspective(45.0, (GLfloat) window_width / (GLfloat) window_height, 0.1, 60.0);
 	
 	// lighting
 	setLighting();
@@ -1337,7 +1338,7 @@ CUTBoolean preprocessing(int argc, char** argv)
 	}
 	cout << "Computing occlusion... ";
 	cout.flush();
-	occlusion( multipass, pointCloud);
+	occlusion( multipass, pointCloud, h_imesh);
 	cout << "done" << endl;
 
 	// calculate theta angle of the slices of circle for surfel representation
@@ -1558,10 +1559,35 @@ float3 faceCentroid(Face* f)
 	return pos;
 }
 
-float surfelShadow(Surfel* receiver, Surfel* emitter, float3 &receiverVector)
+float formFactor_pA(Surfel* receiver, Face* emitterF)
+{
+	float FpA;
+	float3 e, v, G;
+	Halfedge* he;
+	
+	FpA = 0.0;
+	he = emitterF->he;
+	do {
+		e = getVector( he);
+		v = getVector( receiver->pos, he->vert->pos);
+		G = normalizeVector( crossProduct( e, v));
+		FpA += dotProduct( receiver->normal, G);
+		he = he->next;
+	} while (he != emitterF->he);
+	
+	FpA /= 2 * PI;
+	
+	return FpA;
+}
+
+float surfelShadow(Surfel* receiver, Surfel* emitter, float3 &receiverVector, Face* ef)
 {
 	float distance, dSquared;
 	float3 v, emitterVector;
+	
+	if (receiver == emitter) {
+		return 0.0;
+	}
 
 	v = getVector( receiver->pos, emitter->pos);
 	distance = magnitude( v);
@@ -1569,15 +1595,22 @@ float surfelShadow(Surfel* receiver, Surfel* emitter, float3 &receiverVector)
 	receiverVector = normalizeVector( v);
 	emitterVector = reverseVector( receiverVector);
 
-	return (1 - 1 / sqrt( emitter->area / (PI * dSquared) + 1))
+//	return (1 - 1 / sqrt( (emitter->area / PI) / dSquared + 1))
+//			* clamp( dotProduct( emitter->normal, emitterVector))
+//			* clamp( 4 * dotProduct( receiver->normal, receiverVector));
+	return formFactor_pA( receiver, ef)
 			* clamp( dotProduct( emitter->normal, emitterVector))
-			* clamp( 4 * dotProduct( receiver->normal, receiverVector));
+			* clamp( dotProduct( receiver->normal, receiverVector));
 }
 
 float colorBleeding(Surfel* receiver, Surfel* emitter, float3 &receiverVector)
 {
 	float distance, dSquared;
 	float3 v, emitterVector;
+
+	if (receiver == emitter) {
+		return 0.0;
+	}
 
 	v = getVector( emitter->pos, receiver->pos);
 	distance = magnitude( v);
@@ -1589,7 +1622,7 @@ float colorBleeding(Surfel* receiver, Surfel* emitter, float3 &receiverVector)
 			/ ( PI * dSquared + emitter->area);
 }
 
-CUTBoolean occlusion(int passes, vector<Surfel> &pc)
+CUTBoolean occlusion(int passes, vector<Surfel> &pc, Solid* s)
 {
 	float sshadow, sshadow_total;
 	float3 recVec;
@@ -1604,28 +1637,27 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc)
 				pc[i].bentNormal = pc[i].normal;
 			for (unsigned int j=0; j < pc.size(); j++)
 			{
-				if (i!=j) {
-					if (k == 1)
-					{
-						sshadow = surfelShadow( &pc[i], &pc[j], recVec);
-						sshadow_total += sshadow;
-					}
-					else if (k == 2)
-					{
-						sshadow = surfelShadow( &pc[i], &pc[j], recVec) * pc[j].accessibility;
-						sshadow_total += sshadow;
-					}
-					else if (k == 3)
-					{
-						sshadow = surfelShadow( &pc[i], &pc[j], recVec) * pc[j].acc_2nd_pass;
-						sshadow_total += sshadow;
-					}
-					if (k == passes)
-					{
-						pc[i].bentNormal.x -= sshadow * recVec.x;
-						pc[i].bentNormal.y -= sshadow * recVec.y;
-						pc[i].bentNormal.z -= sshadow * recVec.z;
-					}
+				if (k == 1)
+				{
+					sshadow = surfelShadow( &pc[i], &pc[j], recVec, &s->f[j]);
+//					printf("%i%f\n");
+					sshadow_total += sshadow;
+				}
+				else if (k == 2)
+				{
+					sshadow = surfelShadow( &pc[i], &pc[j], recVec, &s->f[j]) * pc[j].accessibility;
+					sshadow_total += sshadow;
+				}
+				else if (k == 3)
+				{
+					sshadow = surfelShadow( &pc[i], &pc[j], recVec, &s->f[j]) * pc[j].acc_2nd_pass;
+					sshadow_total += sshadow;
+				}
+				if (k == passes)
+				{
+					pc[i].bentNormal.x -= sshadow * recVec.x;
+					pc[i].bentNormal.y -= sshadow * recVec.y;
+					pc[i].bentNormal.z -= sshadow * recVec.z;
 				}
 			}
 			if (k == 1)

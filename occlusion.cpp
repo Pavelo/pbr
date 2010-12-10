@@ -173,7 +173,7 @@ CUTBoolean createPointCloud( Solid* s, vector<Surfel> &pc);
 CUTBoolean savePointCloud( vector<Surfel> &pc, const char* path);
 CUTBoolean loadPointCloud( const char* path, vector<Surfel> &pc);
 CUTBoolean occlusion( int passes, vector<Surfel> &pc);
-float surfelShadow( Surfel* emitter, Surfel* receiver, float3 &receiverVector);
+float solidAngle( Surfel* emitter, Surfel* receiver, float3 &receiverVector, float distanceAttenuation);
 float colorBleeding( Surfel* receiver, Surfel* emitter, float3 &receiverVector);
 
 // GL functionality
@@ -1554,9 +1554,9 @@ CUTBoolean createPointCloud(Solid* s, vector<Surfel> &pc)
 	return CUTTrue;
 }
 
-float surfelShadow(Surfel* receiver, Surfel* emitter, float3 &receiverVector)
+float solidAngle(Surfel* receiver, Surfel* emitter, float3 &receiverVector, float distanceAttenuation)
 {
-	float distance, dSquared;
+	float distance, dSquared, res;
 	float3 v, emitterVector;
 
 	if (receiver == emitter) {
@@ -1569,9 +1569,11 @@ float surfelShadow(Surfel* receiver, Surfel* emitter, float3 &receiverVector)
 	receiverVector = normalizeVector( v);
 	emitterVector = reverseVector( receiverVector);
 
-	return (1 - 1 / sqrt( emitter->area / (PI * dSquared) + 1))
-			* clamp( dotProduct( emitter->normal, emitterVector))
-			* clamp( dotProduct( receiver->normal, receiverVector));
+	res = emitter->area	* clamp( dotProduct( emitter->normal, emitterVector)) * clamp( dotProduct( receiver->normal, receiverVector))
+			/ (dSquared + emitter->area / PI);
+	res /= PI;
+	res /= (1.0 + distanceAttenuation * distance);
+	return res;
 }
 
 float colorBleeding(Surfel* receiver, Surfel* emitter, float3 &receiverVector)
@@ -1595,9 +1597,10 @@ float colorBleeding(Surfel* receiver, Surfel* emitter, float3 &receiverVector)
 
 CUTBoolean occlusion(int passes, vector<Surfel> &pc)
 {
-	float sshadow, sshadow_total;
+	float sshadow, sshadow_total, dAtt;
 	float3 recVec;
 
+	dAtt = 0.5;
 	sshadow = 0.0f;
 	for (int k=1; k <= passes; k++)
 	{
@@ -1610,17 +1613,17 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc)
 			{
 				if (k == 1)
 				{
-					sshadow = surfelShadow( &pc[i], &pc[j], recVec);
+					sshadow = solidAngle( &pc[i], &pc[j], recVec, dAtt);
 					sshadow_total += sshadow;
 				}
 				else if (k == 2)
 				{
-					sshadow = surfelShadow( &pc[i], &pc[j], recVec) * pc[j].accessibility;
+					sshadow = solidAngle( &pc[i], &pc[j], recVec, dAtt) * pc[j].accessibility;
 					sshadow_total += sshadow;
 				}
 				else if (k == 3)
 				{
-					sshadow = surfelShadow( &pc[i], &pc[j], recVec) * pc[j].acc_2nd_pass;
+					sshadow = solidAngle( &pc[i], &pc[j], recVec, dAtt) * pc[j].acc_2nd_pass;
 					sshadow_total += sshadow;
 				}
 				if (k == passes)
@@ -1632,15 +1635,15 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc)
 			}
 			if (k == 1)
 			{
-				pc[i].accessibility = 1.f - sshadow_total;
+				pc[i].accessibility = clamp( 1.f - sshadow_total);
 			}
 			else if (k == 2)
 			{
-				pc[i].acc_2nd_pass = 1.f - sshadow_total;
+				pc[i].acc_2nd_pass = clamp( 1.f - sshadow_total);
 			}
 			else if (k == 3)
 			{
-				pc[i].acc_3rd_pass = 1.f - sshadow_total;
+				pc[i].acc_3rd_pass = clamp( 1.f - sshadow_total);
 			}
 			if (k == passes)
 			{

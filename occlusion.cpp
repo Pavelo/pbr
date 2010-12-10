@@ -1595,6 +1595,180 @@ float3 faceCentroid(Face* f)
 	return pos;
 }
 
+//void visibleQuad(float3 p, float3 n, float3 v0, float3 v1, float3 v2, float3 &q0, float3 &q1, float3 &q2, float3 &q3)
+//{
+//	const float epsilon = 1e-6;
+//	float d = dotProduct( n, p);
+//	float3 sd;
+//	
+//	// Compute the signed distances from the vertices to the plane
+//	sd.x = dotProduct( n, v0) - d;
+//	sd.y = dotProduct( n, v1) - d;
+//	sd.z = dotProduct( n, v2) - d;
+//	if ( abs(sd.x) <= epsilon ) sd.x = 0.0;
+//	if ( abs(sd.y) <= epsilon ) sd.y = 0.0;
+//	if ( abs(sd.z) <= epsilon ) sd.z = 0.0;
+//	
+//	// Determine case
+//	if ( sd.x > 0.0 )
+//	{
+//		if ( sd.y > 0.0 )
+//		{
+//			if ( sd.z > 0.0 )
+//			{
+//				// v0, v1, v2 all above
+//				q0 = v0;
+//				q1 = v1;
+//				q2 = v2;
+//				q3 = v2;
+//			}
+//			else
+//			{
+//				// v0, v1 above, v2 under
+//				q0 = v0;
+//				q1 = v1;
+//				q2 = add( v1, mul( sd.y/(sd.y - sd.z), sub(v2, v1))); // <-- ray-plane equations
+//				q3 = add( v0, mul( sd.x/(sd.x - sd.z), sub(v2, v0))); // <-'
+//			}
+//		}
+//		else
+//		{
+//			if ( sd.z > 0.0 )
+//			{
+//				// v0, v2, above, v1 under
+//				q0 = v0;
+//				q1 = v1;
+//				q2 = v2;
+//				q3 = v2;
+//			}
+//			else
+//			{
+//				// v0 above, v1, v2 under
+//				q0 = v0;
+//				q1 = v1;
+//				q2 = v2;
+//				q3 = v2;
+//			}
+//		}
+//	}
+//	else
+//	{
+//		if ( sd.y > 0.0 )
+//		{
+//			if ( sd.z > 0.0 )
+//			{
+//				// v0 under, v1, v2 above
+//				q0 = v0;
+//				q1 = v1;
+//				q2 = v2;
+//				q3 = v2;
+//			}
+//			else
+//			{
+//				// v0, v2 under, v1 above
+//				q0 = v0;
+//				q1 = v1;
+//				q2 = v2;
+//				q3 = v2;
+//			}
+//		}
+//		else
+//		{
+//			if ( sd.z > 0.0 )
+//			{
+//				// v0, v1 under, v2 above
+//				q0 = v0;
+//				q1 = v1;
+//				q2 = v2;
+//				q3 = v2;
+//			}
+//			else
+//			{
+//				// v0, v1, v2 all under
+//				q0 = v0;
+//				q1 = v0;
+//				q2 = v0;
+//				q3 = v0;
+//			}
+//		}
+//	}
+//}
+
+float visibleQuad(float3 p, float3 n, float3 v0, float3 v1, float3 v2)
+{
+	const float epsilon = 1e-6;
+	float d = dotProduct( n, p);
+	float3 sd;
+	
+	// Compute the signed distances from the vertices to the plane
+	sd.x = dotProduct( n, v0) - d;
+	sd.y = dotProduct( n, v1) - d;
+	sd.z = dotProduct( n, v2) - d;
+	if ( abs(sd.x) <= epsilon ) sd.x = 0.0;
+	if ( abs(sd.y) <= epsilon ) sd.y = 0.0;
+	if ( abs(sd.z) <= epsilon ) sd.z = 0.0;
+	
+	// Determine case
+	if ( sd.x > 0.0 )
+	{
+		if ( sd.y > 0.0 )
+		{
+			if ( sd.z > 0.0 )
+			{
+				// v0, v1, v2 all above
+				return 1.0;
+			}
+			else
+			{
+				// v0, v1 above, v2 under
+				return 1.0;
+			}
+		}
+		else
+		{
+			if ( sd.z > 0.0 )
+			{
+				// v0, v2, above, v1 under
+				return 1.0;
+			}
+			else
+			{
+				// v0 above, v1, v2 under
+				return 1.0;
+			}
+		}
+	}
+	else
+	{
+		if ( sd.y > 0.0 )
+		{
+			if ( sd.z > 0.0 )
+			{
+				// v0 under, v1, v2 above
+				return 1.0;
+			}
+			else
+			{
+				// v0, v2 under, v1 above
+				return 1.0;
+			}
+		}
+		else
+		{
+			if ( sd.z > 0.0 )
+			{
+				// v0, v1 under, v2 above
+				return 1.0;
+			}
+			else
+			{
+				// v0, v1, v2 all under
+				return 0.0;
+			}
+		}
+	}
+}
+
 float formFactor_pA(Surfel* receiver, Face* emitterF)
 {
 	float FpA;
@@ -1634,7 +1808,7 @@ float surfelShadow(Surfel* receiver, Surfel* emitter, float3 &receiverVector, Fa
 //	return (1 - 1 / sqrt( (emitter->area / PI) / dSquared + 1))
 //			* clamp( dotProduct( emitter->normal, emitterVector))
 //			* clamp( 3 * dotProduct( receiver->normal, receiverVector));
-	return formFactor_pA( receiver, ef);
+	return formFactor_pA( receiver, ef) * visibleQuad( receiver->pos, receiver->normal, ef->he->vert->pos, ef->he->next->vert->pos, ef->he->prev->vert->pos);
 //			* clamp( dotProduct( emitter->normal, emitterVector))
 //			* clamp( dotProduct( receiver->normal, receiverVector));
 //	if ( dotProduct( receiver->normal, receiverVector) > 0.0 && dotProduct( emitter->normal, emitterVector) > 0.0 )

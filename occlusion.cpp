@@ -128,7 +128,7 @@ float light_orientation[] = {0.0, 0.2, 0.8, 0.0};
 bool altPressed = false;
 GLuint shaderSelected = 0, shaderID = 0;
 GLint loc0;
-bool ao_1pass = true;
+bool ao_lastPass = true;
 int counter = 0;
 
 // mouse controls
@@ -212,7 +212,7 @@ void runAutoTest();
 // utilities
 float rad( float deg);
 float deg( float rad);
-float magnitude( float3 vec);
+float norm( float3 vec);
 float3 normalizeVector( float3 vec);
 float dotProduct( float3 v1, float3 v2);
 float3 crossProduct( float3 v1, float3 v2);
@@ -315,7 +315,7 @@ CUTBoolean initGL(int argc, char **argv)
     // projection
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    gluPerspective(45.0, (GLfloat) window_width / (GLfloat) window_height, 0.1, 30.0);
+    gluPerspective(45.0, (GLfloat) window_width / (GLfloat) window_height, 0.1, 60.0);
 	
 	// lighting
 	setLighting();
@@ -600,7 +600,7 @@ void keyboard(unsigned char key, int /*x*/, int /*y*/)
 	// switch between one and two passes of ambient occlusion
 		case 'e':
 		case 'E':
-			ao_1pass = !ao_1pass;
+			ao_lastPass = !ao_lastPass;
 			break;
 			
 	// press space to reset camera view, or alt+space to reset lights position
@@ -950,20 +950,20 @@ void drawSolid(Solid* model)
 	{
 		glNormal3f(model->vn[model->f[i].n.x-1].x, model->vn[model->f[i].n.x-1].y, model->vn[model->f[i].n.x-1].z);
 //		glTexCoord2f(model->vt[model->f[i].t.x-1].x, model->vt[model->f[i].t.x-1].y);
-		if (ao_1pass) glVertexAttrib1f( loc0, pointCloud[model->f[i].v.x-1].accessibility);
-		else          glVertexAttrib1f( loc0, pointCloud[model->f[i].v.x-1].acc_2nd_pass);
+		if (ao_lastPass) glVertexAttrib1f( loc0, pointCloud[model->f[i].v.x-1].acc_3rd_pass);
+		else             glVertexAttrib1f( loc0, pointCloud[model->f[i].v.x-1].accessibility);
 		glVertex3f(model->v[model->f[i].v.x-1].pos.x, model->v[model->f[i].v.x-1].pos.y, model->v[model->f[i].v.x-1].pos.z);
 		
 		glNormal3f(model->vn[model->f[i].n.y-1].x, model->vn[model->f[i].n.y-1].y, model->vn[model->f[i].n.y-1].z);
 //		glTexCoord2f(model->vt[model->f[i].t.y-1].x, model->vt[model->f[i].t.y-1].y);
-		if (ao_1pass) glVertexAttrib1f( loc0, pointCloud[model->f[i].v.y-1].accessibility);
-		else          glVertexAttrib1f( loc0, pointCloud[model->f[i].v.y-1].acc_2nd_pass);
+		if (ao_lastPass) glVertexAttrib1f( loc0, pointCloud[model->f[i].v.y-1].acc_3rd_pass);
+		else             glVertexAttrib1f( loc0, pointCloud[model->f[i].v.y-1].accessibility);
 		glVertex3f(model->v[model->f[i].v.y-1].pos.x, model->v[model->f[i].v.y-1].pos.y, model->v[model->f[i].v.y-1].pos.z);
 		
 		glNormal3f(model->vn[model->f[i].n.z-1].x, model->vn[model->f[i].n.z-1].y, model->vn[model->f[i].n.z-1].z);
 //		glTexCoord2f(model->vt[model->f[i].t.z-1].x, model->vt[model->f[i].t.z-1].y);
-		if (ao_1pass) glVertexAttrib1f( loc0, pointCloud[model->f[i].v.z-1].accessibility);
-		else          glVertexAttrib1f( loc0, pointCloud[model->f[i].v.z-1].acc_2nd_pass);
+		if (ao_lastPass) glVertexAttrib1f( loc0, pointCloud[model->f[i].v.z-1].acc_3rd_pass);
+		else             glVertexAttrib1f( loc0, pointCloud[model->f[i].v.z-1].accessibility);
 		glVertex3f(model->v[model->f[i].v.z-1].pos.x, model->v[model->f[i].v.z-1].pos.y, model->v[model->f[i].v.z-1].pos.z);
 		
 //		if (counter == 1)
@@ -992,18 +992,18 @@ void displayBentNormal(Solid* model, vector<Surfel> &pc)
 	for (unsigned int i=0; i < model->f.size(); i++)
 	{
 		glNormal3f(pc[model->f[i].v.x-1].bentNormal.x, pc[model->f[i].v.x-1].bentNormal.y, pc[model->f[i].v.x-1].bentNormal.z);
-		if (ao_1pass) glVertexAttrib1f( loc0, pointCloud[model->f[i].v.x-1].acc_3rd_pass);
-		else          glVertexAttrib1f( loc0, pointCloud[model->f[i].v.x-1].accessibility);
+		if (ao_lastPass) glVertexAttrib1f( loc0, pointCloud[model->f[i].v.x-1].acc_3rd_pass);
+		else             glVertexAttrib1f( loc0, pointCloud[model->f[i].v.x-1].accessibility);
 		glVertex3f(model->v[model->f[i].v.x-1].pos.x, model->v[model->f[i].v.x-1].pos.y, model->v[model->f[i].v.x-1].pos.z);
 		
 		glNormal3f(pc[model->f[i].v.y-1].bentNormal.x, pc[model->f[i].v.y-1].bentNormal.y, pc[model->f[i].v.y-1].bentNormal.z);
-		if (ao_1pass) glVertexAttrib1f( loc0, pointCloud[model->f[i].v.y-1].acc_3rd_pass);
-		else          glVertexAttrib1f( loc0, pointCloud[model->f[i].v.y-1].accessibility);
+		if (ao_lastPass) glVertexAttrib1f( loc0, pointCloud[model->f[i].v.y-1].acc_3rd_pass);
+		else             glVertexAttrib1f( loc0, pointCloud[model->f[i].v.y-1].accessibility);
 		glVertex3f(model->v[model->f[i].v.y-1].pos.x, model->v[model->f[i].v.y-1].pos.y, model->v[model->f[i].v.y-1].pos.z);
 		
 		glNormal3f(pc[model->f[i].v.z-1].bentNormal.x, pc[model->f[i].v.z-1].bentNormal.y, pc[model->f[i].v.z-1].bentNormal.z);
-		if (ao_1pass) glVertexAttrib1f( loc0, pointCloud[model->f[i].v.z-1].acc_3rd_pass);
-		else          glVertexAttrib1f( loc0, pointCloud[model->f[i].v.z-1].accessibility);
+		if (ao_lastPass) glVertexAttrib1f( loc0, pointCloud[model->f[i].v.z-1].acc_3rd_pass);
+		else             glVertexAttrib1f( loc0, pointCloud[model->f[i].v.z-1].accessibility);
 		glVertex3f(model->v[model->f[i].v.z-1].pos.x, model->v[model->f[i].v.z-1].pos.y, model->v[model->f[i].v.z-1].pos.z);
 	}
 	glEnd();
@@ -1209,16 +1209,16 @@ float3 normalsAverage(vector<float3> normals, vector<float> weights)
 	return normalizeVector( sum);
 }
 
-float magnitude(float3 vec)
+float norm(float3 vec)
 {
 	return sqrt( vec.x*vec.x + vec.y*vec.y + vec.z*vec.z );
 }
 
 float3 normalizeVector(float3 vec)
 {
-	float mag = magnitude( vec);
+	float length = norm( vec);
 	
-	return make_float3( vec.x/mag, vec.y/mag, vec.z/mag );
+	return make_float3( vec.x/length, vec.y/length, vec.z/length );
 }
 
 float clamp(float val, float inf, float sup)
@@ -1559,15 +1559,19 @@ float surfelShadow(Surfel* receiver, Surfel* emitter, float3 &receiverVector)
 	float distance, dSquared;
 	float3 v, emitterVector;
 
-	v = getVector( emitter->pos, receiver->pos);
-	distance = magnitude( v);
-	dSquared = distance * distance;
-	emitterVector = normalizeVector( v);
-	receiverVector = reverseVector( emitterVector);
+	if (receiver == emitter) {
+		return 0.0;
+	}
 
-	return (1 - 1 / sqrt( (emitter->area / PI) / dSquared + 1))
+	v = getVector( receiver->pos, emitter->pos);
+	distance = norm( v);
+	dSquared = distance * distance;
+	receiverVector = normalizeVector( v);
+	emitterVector = reverseVector( receiverVector);
+
+	return (1 - 1 / sqrt( emitter->area / (PI * dSquared) + 1))
 			* clamp( dotProduct( emitter->normal, emitterVector))
-			* clamp( 4 * dotProduct( receiver->normal, receiverVector));
+			* clamp( dotProduct( receiver->normal, receiverVector));
 }
 
 float colorBleeding(Surfel* receiver, Surfel* emitter, float3 &receiverVector)
@@ -1575,14 +1579,18 @@ float colorBleeding(Surfel* receiver, Surfel* emitter, float3 &receiverVector)
 	float distance, dSquared;
 	float3 v, emitterVector;
 
+	if (receiver == emitter) {
+		return 0.0;
+	}
+
 	v = getVector( emitter->pos, receiver->pos);
-	distance = magnitude( v);
+	distance = norm( v);
 	dSquared = distance * distance;
 	emitterVector = normalizeVector( v);
 	receiverVector = reverseVector( emitterVector);
 
-	return ( emitter->area * clamp( dotProduct( emitter->normal, emitterVector)) * clamp( dotProduct( receiver->normal, receiverVector))
-			/ ( PI * dSquared + emitter->area) );
+	return emitter->area * clamp( dotProduct( emitter->normal, emitterVector)) * clamp( dotProduct( receiver->normal, receiverVector))
+			/ ( PI * dSquared + emitter->area);
 }
 
 CUTBoolean occlusion(int passes, vector<Surfel> &pc)
@@ -1596,29 +1604,30 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc)
 		for (unsigned int i=0; i < pc.size(); i++)
 		{
 			sshadow_total = .0f;
-			if (k == 1)
+			if (k == passes)
 				pc[i].bentNormal = pc[i].normal;
 			for (unsigned int j=0; j < pc.size(); j++)
 			{
-				if (i!=j) {
-					if (k == 1)
-					{
-						sshadow = surfelShadow( &pc[i], &pc[j], recVec);
-						sshadow_total += sshadow;
-					}
-					else if (k == 2)
-					{
-						sshadow = surfelShadow( &pc[i], &pc[j], recVec) * pc[j].accessibility;
-						sshadow_total += sshadow;
-					}
-					else if (k == 3)
-					{
-						sshadow = surfelShadow( &pc[i], &pc[j], recVec) * pc[j].acc_2nd_pass;
-						sshadow_total += sshadow;
-						pc[i].bentNormal.x -= sshadow * recVec.x;
-						pc[i].bentNormal.y -= sshadow * recVec.y;
-						pc[i].bentNormal.z -= sshadow * recVec.z;
-					}
+				if (k == 1)
+				{
+					sshadow = surfelShadow( &pc[i], &pc[j], recVec);
+					sshadow_total += sshadow;
+				}
+				else if (k == 2)
+				{
+					sshadow = surfelShadow( &pc[i], &pc[j], recVec) * pc[j].accessibility;
+					sshadow_total += sshadow;
+				}
+				else if (k == 3)
+				{
+					sshadow = surfelShadow( &pc[i], &pc[j], recVec) * pc[j].acc_2nd_pass;
+					sshadow_total += sshadow;
+				}
+				if (k == passes)
+				{
+					pc[i].bentNormal.x -= sshadow * recVec.x;
+					pc[i].bentNormal.y -= sshadow * recVec.y;
+					pc[i].bentNormal.z -= sshadow * recVec.z;
 				}
 			}
 			if (k == 1)
@@ -1632,6 +1641,9 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc)
 			else if (k == 3)
 			{
 				pc[i].acc_3rd_pass = 1.f - sshadow_total;
+			}
+			if (k == passes)
+			{
 				pc[i].bentNormal = normalizeVector( pc[i].bentNormal);
 			}
 		}

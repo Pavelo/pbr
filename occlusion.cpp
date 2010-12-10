@@ -214,12 +214,18 @@ void runAutoTest();
 // utilities
 float rad( float deg);
 float deg( float rad);
-float magnitude( float3 vec);
+float norm( float3 vec);
 float3 normalizeVector( float3 vec);
 float dotProduct( float3 v1, float3 v2);
 float3 crossProduct( float3 v1, float3 v2);
 float3 normalsAverage( vector<float3> normals, vector<float> weights);
 float clamp( float val, float inf = 0.0f, float sup = 1.0f);
+float abs( float n);
+float3 add( float3 a, float3 b);
+float3 sub( float3 a, float3 b);
+float3 mul( float3 a, float3 b);
+float3 div( float3 a, float3 b);
+float3 mul( float c, float a);
 
 ////////////////////////////////////////////////////////////////////////////////
 // Program main
@@ -1209,16 +1215,16 @@ float3 normalsAverage(vector<float3> normals, vector<float> weights)
 	return normalizeVector( sum);
 }
 
-float magnitude(float3 vec)
+float norm(float3 vec)
 {
 	return sqrt( vec.x*vec.x + vec.y*vec.y + vec.z*vec.z );
 }
 
 float3 normalizeVector(float3 vec)
 {
-	float mag = magnitude( vec);
+	float lenght = norm( vec);
 	
-	return make_float3( vec.x/mag, vec.y/mag, vec.z/mag );
+	return make_float3( vec.x/lenght, vec.y/lenght, vec.z/lenght );
 }
 
 float clamp(float val, float inf, float sup)
@@ -1232,6 +1238,36 @@ float clamp(float val, float inf, float sup)
 	else {
 		return val;
 	}
+}
+
+float3 add(float3 a, float3 b)
+{
+	return make_float3( a.x + b.x, a.y + b.y, a.z + b.z);
+}
+
+float3 sub(float3 a, float3 b)
+{
+	return make_float3( a.x - b.x, a.y - b.y, a.z - b.z);
+}
+
+float3 mul(float3 a, float3 b)
+{
+	return make_float3( a.x * b.x, a.y * b.y, a.z * b.z);
+}
+
+float3 div(float3 a, float3 b)
+{
+	return make_float3( a.x / b.x, a.y / b.y, a.z / b.z);
+}
+
+float3 mul(float c, float3 a)
+{
+	return make_float3( c * a.x, c * a.y, c * a.z);
+}
+
+float abs(float n)
+{
+	return max( -n, n);
 }
 
 float surfelArea(Vertex* v)
@@ -1590,17 +1626,26 @@ float surfelShadow(Surfel* receiver, Surfel* emitter, float3 &receiverVector, Fa
 	}
 
 	v = getVector( receiver->pos, emitter->pos);
-	distance = magnitude( v);
+	distance = norm( v);
 	dSquared = distance * distance;
 	receiverVector = normalizeVector( v);
 	emitterVector = reverseVector( receiverVector);
 
 //	return (1 - 1 / sqrt( (emitter->area / PI) / dSquared + 1))
 //			* clamp( dotProduct( emitter->normal, emitterVector))
-//			* clamp( 4 * dotProduct( receiver->normal, receiverVector));
-	return formFactor_pA( receiver, ef)
-			* clamp( dotProduct( emitter->normal, emitterVector))
-			* clamp( dotProduct( receiver->normal, receiverVector));
+//			* clamp( 3 * dotProduct( receiver->normal, receiverVector));
+	return formFactor_pA( receiver, ef);
+//			* clamp( dotProduct( emitter->normal, emitterVector))
+//			* clamp( dotProduct( receiver->normal, receiverVector));
+//	if ( dotProduct( receiver->normal, receiverVector) > 0.0 && dotProduct( emitter->normal, emitterVector) > 0.0 )
+//	{
+//		return (1 - 1 / sqrt( (emitter->area / PI) / dSquared + 1));
+//		return formFactor_pA( receiver, ef);
+//	}
+//	else
+//	{
+//		return 0.0;
+//	}
 }
 
 float colorBleeding(Surfel* receiver, Surfel* emitter, float3 &receiverVector)
@@ -1613,7 +1658,7 @@ float colorBleeding(Surfel* receiver, Surfel* emitter, float3 &receiverVector)
 	}
 
 	v = getVector( emitter->pos, receiver->pos);
-	distance = magnitude( v);
+	distance = norm( v);
 	dSquared = distance * distance;
 	emitterVector = normalizeVector( v);
 	receiverVector = reverseVector( emitterVector);
@@ -1633,7 +1678,7 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc, Solid* s)
 		for (unsigned int i=0; i < pc.size(); i++)
 		{
 			sshadow_total = .0f;
-			if (k == 1)
+			if (k == passes)
 				pc[i].bentNormal = pc[i].normal;
 			for (unsigned int j=0; j < pc.size(); j++)
 			{

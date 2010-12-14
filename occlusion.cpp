@@ -1222,9 +1222,12 @@ float norm(float3 vec)
 
 float3 normalizeVector(float3 vec)
 {
-	float lenght = norm( vec);
+	float length = norm( vec);
 	
-	return make_float3( vec.x/lenght, vec.y/lenght, vec.z/lenght );
+	if ( length == 0.0 ) {
+		return make_float3( 0.0, 0.0, 0.0 );
+	}
+	return make_float3( vec.x/length, vec.y/length, vec.z/length );
 }
 
 float clamp(float val, float inf, float sup)
@@ -1595,106 +1598,7 @@ float3 faceCentroid(Face* f)
 	return pos;
 }
 
-//void visibleQuad(float3 p, float3 n, float3 v0, float3 v1, float3 v2, float3 &q0, float3 &q1, float3 &q2, float3 &q3)
-//{
-//	const float epsilon = 1e-6;
-//	float d = dotProduct( n, p);
-//	float3 sd;
-//	
-//	// Compute the signed distances from the vertices to the plane
-//	sd.x = dotProduct( n, v0) - d;
-//	sd.y = dotProduct( n, v1) - d;
-//	sd.z = dotProduct( n, v2) - d;
-//	if ( abs(sd.x) <= epsilon ) sd.x = 0.0;
-//	if ( abs(sd.y) <= epsilon ) sd.y = 0.0;
-//	if ( abs(sd.z) <= epsilon ) sd.z = 0.0;
-//	
-//	// Determine case
-//	if ( sd.x > 0.0 )
-//	{
-//		if ( sd.y > 0.0 )
-//		{
-//			if ( sd.z > 0.0 )
-//			{
-//				// v0, v1, v2 all above
-//				q0 = v0;
-//				q1 = v1;
-//				q2 = v2;
-//				q3 = v2;
-//			}
-//			else
-//			{
-//				// v0, v1 above, v2 under
-//				q0 = v0;
-//				q1 = v1;
-//				q2 = add( v1, mul( sd.y/(sd.y - sd.z), sub(v2, v1))); // <-- ray-plane equations
-//				q3 = add( v0, mul( sd.x/(sd.x - sd.z), sub(v2, v0))); // <-'
-//			}
-//		}
-//		else
-//		{
-//			if ( sd.z > 0.0 )
-//			{
-//				// v0, v2, above, v1 under
-//				q0 = v0;
-//				q1 = v1;
-//				q2 = v2;
-//				q3 = v2;
-//			}
-//			else
-//			{
-//				// v0 above, v1, v2 under
-//				q0 = v0;
-//				q1 = v1;
-//				q2 = v2;
-//				q3 = v2;
-//			}
-//		}
-//	}
-//	else
-//	{
-//		if ( sd.y > 0.0 )
-//		{
-//			if ( sd.z > 0.0 )
-//			{
-//				// v0 under, v1, v2 above
-//				q0 = v0;
-//				q1 = v1;
-//				q2 = v2;
-//				q3 = v2;
-//			}
-//			else
-//			{
-//				// v0, v2 under, v1 above
-//				q0 = v0;
-//				q1 = v1;
-//				q2 = v2;
-//				q3 = v2;
-//			}
-//		}
-//		else
-//		{
-//			if ( sd.z > 0.0 )
-//			{
-//				// v0, v1 under, v2 above
-//				q0 = v0;
-//				q1 = v1;
-//				q2 = v2;
-//				q3 = v2;
-//			}
-//			else
-//			{
-//				// v0, v1, v2 all under
-//				q0 = v0;
-//				q1 = v0;
-//				q2 = v0;
-//				q3 = v0;
-//			}
-//		}
-//	}
-//}
-
-float visibleQuad(float3 p, float3 n, float3 v0, float3 v1, float3 v2)
+void visibleQuad(float3 p, float3 n, float3 v0, float3 v1, float3 v2, float3 &q0, float3 &q1, float3 &q2, float3 &q3)
 {
 	const float epsilon = 1e-6;
 	float d = dotProduct( n, p);
@@ -1715,26 +1619,132 @@ float visibleQuad(float3 p, float3 n, float3 v0, float3 v1, float3 v2)
 		{
 			if ( sd.z > 0.0 )
 			{
-				// v0, v1, v2 all above
-				return 1.0;
+				// +++ & ++0
+				q0 = v0;
+				q1 = v1;
+				q2 = v2;
+				q3 = q2;
 			}
 			else
 			{
-				// v0, v1 above, v2 under
-				return 1.0;
+				// ++-
+				q0 = v0;
+				q1 = v1;
+				q2 = add( v1, mul( sd.y/(sd.y - sd.z), sub(v2, v1))); // <-- ray-plane equations
+				q3 = add( v0, mul( sd.x/(sd.x - sd.z), sub(v2, v0))); // <-'
+			}
+		}
+		else if ( sd.y < 0.0 )
+		{
+			if ( sd.z > 0.0 )
+			{
+				// +-+
+				q0 = v0;
+				q1 = add( v0, mul( sd.x/(sd.x - sd.y), sub( v1, v0)));
+				q2 = add( v1, mul( sd.y/(sd.y - sd.z), sub( v2, v1)));
+				q3 = v2;
+			}
+			else if ( sd.z < 0.0 )
+			{
+				// +--
+				q0 = v0;
+				q1 = add( v0, mul( sd.x/(sd.x - sd.y), sub( v1, v0)));
+				q2 = add( v0, mul( sd.x/(sd.x - sd.z), sub( v2, v0)));
+				q3 = q2;
+			}
+			else
+			{
+				// +-0
+				q0 = v0;
+				q1 = add( v0, mul( sd.x/(sd.x - sd.y), sub( v1, v0)));
+				q2 = v2;
+				q3 = q2;
+			}
+		}
+		else
+		{
+			if ( sd.z < 0.0 ) {
+				//+0-
+				q0 = v0;
+				q1 = v1;
+				q2 = add( v0, mul( sd.x/(sd.x - sd.z), sub( v2, v0)));
+				q3 = q2;
+			}
+			else
+			{
+				// +0+
+				q0 = v0;
+				q1 = v1;
+				q2 = v2;
+				q3 = q2;
+			}
+		}
+	}
+	else if ( sd.x < 0.0 )
+	{
+		if ( sd.y > 0.0 )
+		{
+			if ( sd.z > 0.0 )
+			{
+				// -++
+				q0 = add( v0, mul( sd.x/(sd.x - sd.y), sub( v1, v0)));
+				q1 = v1;
+				q2 = v2;
+				q3 = add( v0, mul( sd.x/(sd.x - sd.z), sub( v2, v0)));
+			}
+			else if ( sd.z < 0.0 )
+			{
+				// -+-
+				q0 = add( v0, mul( sd.x/(sd.x - sd.y), sub( v1, v0)));
+				q1 = v1;
+				q2 = add( v1, mul( sd.y/(sd.y - sd.z), sub( v2, v1)));
+				q3 = q2;
+			}
+			else
+			{
+				// -+0
+				q0 = add( v0, mul( sd.x/(sd.x - sd.y), sub( v1, v0)));
+				q1 = v1;
+				q2 = v2;
+				q3 = q2;
+			}
+		}
+		else if ( sd.y < 0.0 )
+		{
+			if ( sd.z > 0.0 )
+			{
+				// --+
+				q0 = add( v0, mul( sd.x/(sd.x - sd.z), sub( v2, v0)));
+				q1 = add( v1, mul( sd.y/(sd.y - sd.z), sub( v2, v1)));
+				q2 = v2;
+				q3 = q2;
+			}
+			else
+			{
+				// --- & --0
+				q0 = p;
+				q1 = p;
+				q2 = p;
+				q3 = p;
 			}
 		}
 		else
 		{
 			if ( sd.z > 0.0 )
 			{
-				// v0, v2, above, v1 under
-				return 1.0;
+				// -0+
+				q0 = add( v0, mul( sd.x/(sd.x - sd.z), sub( v2, v0)));
+				q1 = v1;
+				q2 = v2;
+				q3 = q2;
 			}
 			else
 			{
-				// v0 above, v1, v2 under
-				return 1.0;
+				// -0- & -00
+				q0 = p;
+				q1 = p;
+				q2 = p;
+				q3 = p;
 			}
 		}
 	}
@@ -1742,58 +1752,91 @@ float visibleQuad(float3 p, float3 n, float3 v0, float3 v1, float3 v2)
 	{
 		if ( sd.y > 0.0 )
 		{
-			if ( sd.z > 0.0 )
+			if ( sd.z < 0.0 )
 			{
-				// v0 under, v1, v2 above
-				return 1.0;
+				// 0+-
+				q0 = v0;
+				q1 = v1;
+				q2 = add( v1, mul( sd.y/(sd.y - sd.z), sub( v2, v1)));
+				q3 = q2;
 			}
 			else
 			{
-				// v0, v2 under, v1 above
-				return 1.0;
+				// 0+0 & 0+-
+				q0 = v0;
+				q1 = v1;
+				q2 = v2;
+				q3 = q2;
+			}
+		}
+		else if ( sd.y < 0.0 )
+		{
+			if ( sd.z > 0.0 )
+			{
+				// 0-+
+				q0 = v0;
+				q1 = add( v1, mul( sd.y/(sd.y - sd.z), sub( v2, v1)));
+				q2 = v2;
+				q3 = q2;
+			}
+			else
+			{
+				// 0-- & 0-0
+				q0 = p;
+				q1 = p;
+				q2 = p;
+				q3 = p;
 			}
 		}
 		else
 		{
 			if ( sd.z > 0.0 )
 			{
-				// v0, v1 under, v2 above
-				return 1.0;
+				// 00+
+				q0 = v0;
+				q1 = v1;
+				q2 = v2;
+				q3 = q2;
 			}
 			else
 			{
-				// v0, v1, v2 all under
-				return 0.0;
+				// 00- & 000
+				q0 = p;
+				q1 = p;
+				q2 = p;
+				q3 = p;
 			}
 		}
 	}
 }
 
-float formFactor_pA(Surfel* receiver, Face* emitterF)
+float formFactor_pA(Surfel* receiver, float3 q0, float3 q1, float3 q2, float3 q3)
 {
-	float FpA;
-	float3 e, v, G;
-	Halfedge* he;
+	float fpa;
+	float3 r[4], g, p;
 	
-	FpA = 0.0;
-	he = emitterF->he;
-	do {
-		e = getVector( he);
-		v = getVector( receiver->pos, he->vert->pos);
-		G = normalizeVector( crossProduct( e, v));
-		FpA += dotProduct( receiver->normal, G);
-		he = he->next;
-	} while (he != emitterF->he);
+	p = receiver->pos;
+	r[0] = normalizeVector( getVector( p, q0));
+	r[1] = normalizeVector( getVector( p, q1));
+	r[2] = normalizeVector( getVector( p, q2));
+	r[3] = normalizeVector( getVector( p, q3));
 	
-	FpA /= 2 * PI;
+	fpa = 0.0;
+	for (unsigned int i=0; i < 4; i++)
+	{
+		g = normalizeVector( crossProduct( r[(i+1)%4], r[i]));
+		fpa += acos( clamp( dotProduct( r[(i+1)%4], r[i]), -1.0, 1.0))
+				* clamp( dotProduct( receiver->normal, g), -1.0, 1.0);
+	}
+	fpa /= 2.0 * PI;
 	
-	return FpA;
+	return fpa;
 }
 
 float surfelShadow(Surfel* receiver, Surfel* emitter, float3 &receiverVector, Face* ef)
 {
 	float distance, dSquared;
-	float3 v, emitterVector;
+	float3 v, emitterVector, q0, q1, q2, q3;
 	
 	if (receiver == emitter) {
 		return 0.0;
@@ -1804,22 +1847,26 @@ float surfelShadow(Surfel* receiver, Surfel* emitter, float3 &receiverVector, Fa
 	dSquared = distance * distance;
 	receiverVector = normalizeVector( v);
 	emitterVector = reverseVector( receiverVector);
+	
+	visibleQuad( receiver->pos,
+				 receiver->normal,
+				 ef->he->vert->pos,
+				 ef->he->next->vert->pos,
+				 ef->he->prev->vert->pos,
+				 q0, q1, q2, q3);
 
 //	return (1 - 1 / sqrt( (emitter->area / PI) / dSquared + 1))
 //			* clamp( dotProduct( emitter->normal, emitterVector))
 //			* clamp( 3 * dotProduct( receiver->normal, receiverVector));
-	return formFactor_pA( receiver, ef) * visibleQuad( receiver->pos, receiver->normal, ef->he->vert->pos, ef->he->next->vert->pos, ef->he->prev->vert->pos);
-//			* clamp( dotProduct( emitter->normal, emitterVector))
-//			* clamp( dotProduct( receiver->normal, receiverVector));
-//	if ( dotProduct( receiver->normal, receiverVector) > 0.0 && dotProduct( emitter->normal, emitterVector) > 0.0 )
-//	{
-//		return (1 - 1 / sqrt( (emitter->area / PI) / dSquared + 1));
-//		return formFactor_pA( receiver, ef);
-//	}
-//	else
-//	{
-//		return 0.0;
-//	}
+
+	if ( dotProduct( emitter->normal, emitterVector) >= 0.0 )
+	{
+		return formFactor_pA( receiver, q0, q1, q2, q3);
+	}
+	else
+	{
+		return 0.0;
+	}
 }
 
 float colorBleeding(Surfel* receiver, Surfel* emitter, float3 &receiverVector)

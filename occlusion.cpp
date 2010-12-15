@@ -1838,16 +1838,17 @@ float surfelShadow(Surfel* receiver, Surfel* emitter, float3 &receiverVector, Fa
 	float distance, dSquared;
 	float3 v, emitterVector, q0, q1, q2, q3;
 	
-	if (receiver == emitter) {
-		return 0.0;
-	}
-
 	v = getVector( receiver->pos, emitter->pos);
 	distance = norm( v);
 	dSquared = distance * distance;
 	receiverVector = normalizeVector( v);
+//	printf("     receiverVector ( %f, %f, %f )\n",receiverVector.x,receiverVector.y,receiverVector.z);
 	emitterVector = reverseVector( receiverVector);
 	
+	if (receiver == emitter) {
+		return 0.0;
+	}
+
 	visibleQuad( receiver->pos,
 				 receiver->normal,
 				 ef->he->vert->pos,
@@ -1906,7 +1907,6 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc, Solid* s)
 				if (k == 1)
 				{
 					sshadow = surfelShadow( &pc[i], &pc[j], recVec, &s->f[j]);
-//					printf("%i%f\n");
 					sshadow_total += sshadow;
 				}
 				else if (k == 2)
@@ -1921,9 +1921,8 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc, Solid* s)
 				}
 				if (k == passes)
 				{
-					pc[i].bentNormal.x -= sshadow * recVec.x;
-					pc[i].bentNormal.y -= sshadow * recVec.y;
-					pc[i].bentNormal.z -= sshadow * recVec.z;
+					pc[i].bentNormal = sub( pc[i].bentNormal, mul( sshadow, recVec));
+//					printf("%4i recVec         ( %f, %f, %f )\n",i,recVec.x,recVec.y,recVec.z);
 				}
 			}
 			if (k == 1)

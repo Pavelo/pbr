@@ -264,7 +264,7 @@ void computeFPS()
     if (fpsCount == fpsLimit) {
         char fps[256];
         float ifps = 1.f / (cutGetAverageTimerValue(timer) * .001f);
-        sprintf(fps, "%sCuda GL Interop (polygon to cloud): %3.1f fps", 
+        sprintf(fps, "%sAmbient Occlusion @ %3.1f fps",
                 ((g_CheckRender && g_CheckRender->IsQAReadback()) ? "AutoTest: " : ""), ifps);  
 
         glutSetWindowTitle(fps);
@@ -287,7 +287,7 @@ CUTBoolean initGL(int argc, char **argv)
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE | GLUT_DEPTH);
     glutInitWindowSize(window_width, window_height);
-    glutCreateWindow("Cuda GL Interop (polygon to cloud)");
+    glutCreateWindow("Ambient Occlusion");
     glutDisplayFunc(display);
     glutKeyboardFunc(keyboard);
 	glutSpecialFunc(specialKeys);

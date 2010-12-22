@@ -1,7 +1,7 @@
-newmtl bigguy_58_lambert2SG2
+newmtl bigguy_00_lambert2SG6
 illum 4
-Kd 0.70 0.70 0.70
-Ka 0.30 0.30 0.30
+Ka 0.70 0.70 0.70
+Kd 0.30 0.30 0.30
 Tf 1.00 1.00 1.00
 Ni 1.00
 Ks 0.50 0.50 0.50

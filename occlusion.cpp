@@ -122,7 +122,7 @@ Solid* h_omesh;
 vector<Surfel> pointCloud;
 int slices;
 float theta;
-unsigned int view_model = BENT_NORM;
+unsigned int view_model = POLYS;
 float light_rotate_x = 0.0, light_rotate_y = 0.0f;
 float light_orientation[] = {0.0, 0.2, 0.8, 0.0};
 bool altPressed = false;
@@ -170,9 +170,10 @@ CUTBoolean preprocessing( int argc, char** argv);
 CUTBoolean run( int argc, char** argv);
 void cleanup();
 void setLighting();
-CUTBoolean createPointCloud( Solid* s, vector<Surfel> &pc);
+CUTBoolean createPointCloud( int mapResolution, vector<Surfel> &pc, Solid* s);
 CUTBoolean savePointCloud( vector<Surfel> &pc, const char* path);
 CUTBoolean loadPointCloud( const char* path, vector<Surfel> &pc);
+float2 texelCentre( int dx, int dy, float du);
 CUTBoolean occlusion( int passes, vector<Surfel> &pc, Solid* s);
 float formFactor_pA( Surfel* receiver, Face* emitterF);
 float surfelShadow( Surfel* emitter, Surfel* receiver, float3 &receiverVector, Face* ef);
@@ -216,8 +217,8 @@ float rad( float deg);
 float deg( float rad);
 float norm( float3 vec);
 float3 normalizeVector( float3 vec);
-float dotProduct( float3 v1, float3 v2);
-float3 crossProduct( float3 v1, float3 v2);
+float dot( float3 v1, float3 v2);
+float3 cross( float3 v1, float3 v2);
 float3 normalsAverage( vector<float3> normals, vector<float> weights);
 float clamp( float val, float inf = 0.0f, float sup = 1.0f);
 float abs( float n);
@@ -553,9 +554,9 @@ void keyboard(unsigned char key, int /*x*/, int /*y*/)
 			break;
 			
 	// surfel view
-		case '2':
-			view_model = SURFELS;
-			break;
+//		case '2':
+//			view_model = SURFELS;
+//			break;
 			
 	// polygonal view, occlusion rendering
 		case '3':
@@ -1316,79 +1317,71 @@ CUTBoolean preprocessing(int argc, char** argv)
 	}
 	cout << "done" << endl;
 	
-	// half-edge structure creation
-	cout << "Creating half-edge structure... ";
+	// create or load point cloud
+	int surfelMapDim;
+	if ( cutCheckCmdLineFlag( argc, (const char**)argv, "map")) {
+		cutGetCmdLineArgumenti( argc, (const char**)argv, "map", &surfelMapDim);
+	} else {
+		surfelMapDim = 64;
+	}
+
+//	cout << "Loading surfels cloud... ";
+//	cout.flush();
+//	dir = "/Developer/GPU Computing/C/src/occlusion/pointClouds/";
+//	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "cloud")) {
+//		cutGetCmdLineArgumentstr( argc, (const char**)argv, "cloud", cfilename );
+//		filename = *cfilename;
+//		path = dir + filename;
+//
+//		if ( !loadPointCloud(path.c_str(), pointCloud)) {
+//			do {
+//				cout << "File \"" << filename << "\" does not exist! Create it? ";
+//				getline(cin, msg);
+//				
+//				if (msg[0] == 'y' || msg[0] == 'Y') {
+//					cout << "Creating surfels cloud..." << endl;
+//					createPointCloud( h_imesh, pointCloud);
+//					cout << "Saving it to \"" << filename << "\"..." << endl;
+//					savePointCloud( pointCloud, path.c_str());
+//				} else if (msg[0] == 'n' || msg[0] == 'N') {
+//					cerr << "Cannot load any surfel cloud. Aborting..." << endl;
+//					return CUTFalse;
+//				} else {
+//					cout << "Answer with 'yes' or 'no'. ";
+//				}
+//			} while (msg.find_first_of("ynYN") != 0);
+//		} else {
+//			cout << "\"" << filename << "\" loaded correctly" << endl;
+//		}
+//	} else {
+//		filename.replace( filename.length()-4, filename.length(), ".sfc" );
+//		path = dir + filename;
+//		
+//		if ( !loadPointCloud( path.c_str(), pointCloud)) {
+	cout << "Creating surfels cloud... ";
 	cout.flush();
-	createHalfedgeList(h_imesh);
+	createPointCloud( surfelMapDim, pointCloud, h_imesh);
 	cout << "done" << endl;
 	
-	// calculate face area (offline)
-	faceArea(h_imesh);
-	
-	// create or load point cloud
-	cout << "Loading surfels cloud... ";
-	cout.flush();
-	dir = "/Developer/GPU Computing/C/src/occlusion/pointClouds/";
-	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "cloud")) {
-		cutGetCmdLineArgumentstr( argc, (const char**)argv, "cloud", cfilename );
-		filename = *cfilename;
-		path = dir + filename;
-
-		if ( !loadPointCloud(path.c_str(), pointCloud)) {
-			do {
-				cout << "File \"" << filename << "\" does not exist! Create it? ";
-				getline(cin, msg);
-				
-				if (msg[0] == 'y' || msg[0] == 'Y') {
-					cout << "Creating surfels cloud..." << endl;
-					createPointCloud( h_imesh, pointCloud);
-					cout << "Saving it to \"" << filename << "\"..." << endl;
-					savePointCloud( pointCloud, path.c_str());
-				} else if (msg[0] == 'n' || msg[0] == 'N') {
-					cerr << "Cannot load any surfel cloud. Aborting..." << endl;
-					return CUTFalse;
-				} else {
-					cout << "Answer with 'yes' or 'no'. ";
-				}
-			} while (msg.find_first_of("ynYN") != 0);
-		} else {
-			cout << "\"" << filename << "\" loaded correctly" << endl;
-		}
-	} else {
-		filename.replace( filename.length()-4, filename.length(), ".sfc" );
-		path = dir + filename;
-		
-		if ( !loadPointCloud( path.c_str(), pointCloud)) {
-			cout << "Creating surfels cloud..." << endl;
-			createPointCloud( h_imesh, pointCloud);
-			cout << "Saving it to \"" << filename << "\"..." << endl;
-			savePointCloud( pointCloud, path.c_str());
-		} else {
-			cout << "\"" << filename << "\" loaded correctly" << endl;
-		}
-	}
+//			cout << "Saving it to \"" << filename << "\"..." << endl;
+//			savePointCloud( pointCloud, path.c_str());
+//		} else {
+//			cout << "\"" << filename << "\" loaded correctly" << endl;
+//		}
+//	}
 
 	// calculate occlusion
-	int multipass;
-	if ( cutCheckCmdLineFlag( argc, (const char**)argv, "multipass")) {
-		cutGetCmdLineArgumenti( argc, (const char**)argv, "multipass", &multipass);
-	} else {
-		multipass = 1;
-	}
-	cout << "Computing occlusion... ";
-	cout.flush();
-	occlusion( multipass, pointCloud, h_imesh);
-	cout << "done" << endl;
+//	int multipass;
+//	if ( cutCheckCmdLineFlag( argc, (const char**)argv, "multipass")) {
+//		cutGetCmdLineArgumenti( argc, (const char**)argv, "multipass", &multipass);
+//	} else {
+//		multipass = 1;
+//	}
+//	cout << "Computing occlusion... ";
+//	cout.flush();
+//	occlusion( multipass, pointCloud, h_imesh);
+//	cout << "done" << endl;
 
-	// calculate theta angle of the slices of circle for surfel representation
-	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "surfel_slices")) {
-		cutGetCmdLineArgumenti( argc, (const char**)argv, "surfel_slices", &slices);
-	} else {
-		slices = 24;
-	}
-	slices = clamp( slices, 4, 32);
-	theta = 2*PI / (float)slices;
-	
 	free(cfilename);
 	
 	return CUTTrue;
@@ -1458,13 +1451,13 @@ void drawPoint(Surfel* sf)
 }
 
 // dot product of NORMALIZED vectors
-float dotProduct(float3 v1, float3 v2)
+float dot(float3 v1, float3 v2)
 {
 	return v1.x*v2.x + v1.y*v2.y + v1.z*v2.z;
 }
 
 // cross product of NORMALIZED vectors
-float3 crossProduct(float3 v1, float3 v2)
+float3 cross(float3 v1, float3 v2)
 {
 	return make_float3( v1.y*v2.z - v1.z*v2.y, v1.z*v2.x - v1.x*v2.z, v1.x*v2.y - v1.y*v2.x );
 }
@@ -1547,34 +1540,47 @@ CUTBoolean savePointCloud(vector<Surfel> &pc, const char* path)
 	return CUTTrue;
 }
 
-CUTBoolean createPointCloud(Solid* s, vector<Surfel> &pc)
+CUTBoolean createPointCloud(int mapResolution, vector<Surfel> &pc, Solid* s)
 {
-	Surfel point;
 	Face* face;
-	float3 zeta = make_float3( 0,0,1 );
-	
-	for (unsigned int i=0; i < s->f.size(); i++)
-	{
-		face = &s->f[i];
-		
-		// calculate position
-		point.pos = faceCentroid( face);
-		
-		// calculate face normal
-		point.normal = normalizeVector( crossProduct( getVector( face->he), getVector( face->he->prev->twin)));
+	float2 texelUV[mapResolution][mapResolution];
+	float4 barycentricCooAndId[mapResolution][mapResolution];
+	float du = 1.0 / (float)(mapResolution);
 
-		// calculate surfel area and radius
-		point.area = face->area;
-		point.radius = sqrt( point.area / PI );
+	pc.reserve( mapResolution * mapResolution);
+
+	// place a surfel in the centre of each texel and store its UVs
+	for (int i=0; i < mapResolution; i++)
+	{
+		for (int j=0; j < mapResolution; j++)
+		{
+			texelUV[i][j] = texelCentre( i, j, du);
+		}
+	}
+
+	// rasterize faces
+	for (unsigned int id=0; id < s->f.size(); id++)
+	{
+		face = &s->f[id];
 		
-		// rotation angle and axis to draw surfel
-		point.phi = deg( acos( dotProduct( zeta, point.normal)));
-		point.rot_axis = crossProduct( zeta, point.normal);
-		
-		pc.push_back( point );
 	}
 	
 	return CUTTrue;
+}
+
+float4 rasterizeCoordinates(int dx, int dy, float2 texelUV, float2 v1, float2 v2, float2 v3)
+{
+	
+}
+
+float2 texelCentre(int dx, int dy, float du)
+{
+	float2 uv;
+	
+	uv.x = dx * du + du * 0.5;
+	uv.y = dy * du + du * 0.5;
+	
+	return uv;
 }
 
 float3 faceCentroid(Face* f)
@@ -1601,13 +1607,13 @@ float3 faceCentroid(Face* f)
 void visibleQuad(float3 p, float3 n, float3 v0, float3 v1, float3 v2, float3 &q0, float3 &q1, float3 &q2, float3 &q3)
 {
 	const float epsilon = 1e-6;
-	float d = dotProduct( n, p);
+	float d = dot( n, p);
 	float3 sd;
 	
 	// Compute the signed distances from the vertices to the plane
-	sd.x = dotProduct( n, v0) - d;
-	sd.y = dotProduct( n, v1) - d;
-	sd.z = dotProduct( n, v2) - d;
+	sd.x = dot( n, v0) - d;
+	sd.y = dot( n, v1) - d;
+	sd.z = dot( n, v2) - d;
 	if ( abs(sd.x) <= epsilon ) sd.x = 0.0;
 	if ( abs(sd.y) <= epsilon ) sd.y = 0.0;
 	if ( abs(sd.z) <= epsilon ) sd.z = 0.0;
@@ -1824,9 +1830,9 @@ float formFactor_pA(Surfel* receiver, float3 q0, float3 q1, float3 q2, float3 q3
 	fpa = 0.0;
 	for (unsigned int i=0; i < 4; i++)
 	{
-		g = normalizeVector( crossProduct( r[(i+1)%4], r[i]));
-		fpa += acos( clamp( dotProduct( r[(i+1)%4], r[i]), -1.0, 1.0))
-				* clamp( dotProduct( receiver->normal, g), -1.0, 1.0);
+		g = normalizeVector( cross( r[(i+1)%4], r[i]));
+		fpa += acos( clamp( dot( r[(i+1)%4], r[i]), -1.0, 1.0))
+				* clamp( dot( receiver->normal, g), -1.0, 1.0);
 	}
 	fpa /= 2.0 * PI;
 	
@@ -1857,10 +1863,10 @@ float surfelShadow(Surfel* receiver, Surfel* emitter, float3 &receiverVector, Fa
 				 q0, q1, q2, q3);
 
 //	return (1 - 1 / sqrt( (emitter->area / PI) / dSquared + 1))
-//			* clamp( dotProduct( emitter->normal, emitterVector))
-//			* clamp( 3 * dotProduct( receiver->normal, receiverVector));
+//			* clamp( dot( emitter->normal, emitterVector))
+//			* clamp( 3 * dot( receiver->normal, receiverVector));
 
-	if ( dotProduct( emitter->normal, emitterVector) >= 0.0 )
+	if ( dot( emitter->normal, emitterVector) >= 0.0 )
 	{
 		return formFactor_pA( receiver, q0, q1, q2, q3);
 	}
@@ -1885,7 +1891,7 @@ float colorBleeding(Surfel* receiver, Surfel* emitter, float3 &receiverVector)
 	emitterVector = normalizeVector( v);
 	receiverVector = reverseVector( emitterVector);
 
-	return emitter->area * clamp( dotProduct( emitter->normal, emitterVector)) * clamp( dotProduct( receiver->normal, receiverVector))
+	return emitter->area * clamp( dot( emitter->normal, emitterVector)) * clamp( dot( receiver->normal, receiverVector))
 			/ ( PI * dSquared + emitter->area);
 }
 

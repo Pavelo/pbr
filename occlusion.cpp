@@ -174,6 +174,8 @@ CUTBoolean createPointCloud( int mapResolution, vector<Surfel> &pc, Solid* s);
 CUTBoolean savePointCloud( vector<Surfel> &pc, const char* path);
 CUTBoolean loadPointCloud( const char* path, vector<Surfel> &pc);
 float2 texelCentre( int dx, int dy, float du);
+bool pointInTriangle( float2 p, float2 t0, float2 t1, float2 t2, float &beta, float &gamma);
+float4 rasterizeCoordinates( int faceId, float2 texelUV, float2 t0, float2 t1, float2 t2, float4 itself);
 CUTBoolean occlusion( int passes, vector<Surfel> &pc, Solid* s);
 float formFactor_pA( Surfel* receiver, Face* emitterF);
 float surfelShadow( Surfel* emitter, Surfel* receiver, float3 &receiverVector, Face* ef);
@@ -217,16 +219,22 @@ float rad( float deg);
 float deg( float rad);
 float norm( float3 vec);
 float3 normalizeVector( float3 vec);
+float dot( float2 v1, float2 v2);
 float dot( float3 v1, float3 v2);
 float3 cross( float3 v1, float3 v2);
 float3 normalsAverage( vector<float3> normals, vector<float> weights);
 float clamp( float val, float inf = 0.0f, float sup = 1.0f);
 float abs( float n);
+float2 add( float2 a, float2 b);
+float2 sub( float2 a, float2 b);
+float2 mul( float2 a, float2 b);
+float2 div( float2 a, float2 b);
+float2 mul( float c, float2 a);
 float3 add( float3 a, float3 b);
 float3 sub( float3 a, float3 b);
 float3 mul( float3 a, float3 b);
 float3 div( float3 a, float3 b);
-float3 mul( float c, float a);
+float3 mul( float c, float3 a);
 
 ////////////////////////////////////////////////////////////////////////////////
 // Program main
@@ -1244,9 +1252,19 @@ float clamp(float val, float inf, float sup)
 	}
 }
 
+float2 add(float2 a, float2 b)
+{
+	return make_float2( a.x + b.x, a.y + b.y);
+}
+
 float3 add(float3 a, float3 b)
 {
 	return make_float3( a.x + b.x, a.y + b.y, a.z + b.z);
+}
+
+float2 sub(float2 a, float2 b)
+{
+	return make_float2( a.x - b.x, a.y - b.y);
 }
 
 float3 sub(float3 a, float3 b)
@@ -1254,19 +1272,34 @@ float3 sub(float3 a, float3 b)
 	return make_float3( a.x - b.x, a.y - b.y, a.z - b.z);
 }
 
-float3 mul(float3 a, float3 b)
+float2 mul(float c, float2 a)
 {
-	return make_float3( a.x * b.x, a.y * b.y, a.z * b.z);
-}
-
-float3 div(float3 a, float3 b)
-{
-	return make_float3( a.x / b.x, a.y / b.y, a.z / b.z);
+	return make_float2( c * a.x, c * a.y);
 }
 
 float3 mul(float c, float3 a)
 {
 	return make_float3( c * a.x, c * a.y, c * a.z);
+}
+
+float2 mul(float2 a, float2 b)
+{
+	return make_float2( a.x * b.x, a.y * b.y);
+}
+
+float3 mul(float3 a, float3 b)
+{
+	return make_float3( a.x * b.x, a.y * b.y, a.z * b.z);
+}
+
+float2 div(float2 a, float2 b)
+{
+	return make_float2( a.x / b.x, a.y / b.y);
+}
+
+float3 div(float3 a, float3 b)
+{
+	return make_float3( a.x / b.x, a.y / b.y, a.z / b.z);
 }
 
 float abs(float n)
@@ -1313,6 +1346,11 @@ CUTBoolean preprocessing(int argc, char** argv)
 	if ( !loadOBJ(path.c_str(), h_imesh) )
 	{
 		cerr << "File \"" << filename << "\" not found!" << endl;
+		return CUTFalse;
+	}
+	if ( h_imesh->vt.empty() )
+	{
+		cerr << "UVs not mapped!\nPlease, load a mesh with mapped texture coordinates." << endl;
 		return CUTFalse;
 	}
 	cout << "done" << endl;
@@ -1450,13 +1488,19 @@ void drawPoint(Surfel* sf)
 	glVertex3f( sf->pos.x, sf->pos.y, sf->pos.z );
 }
 
-// dot product of NORMALIZED vectors
+// dot product of R^2 vectors
+float dot(float2 v1, float2 v2)
+{
+	return v1.x*v2.x + v1.y*v2.y;
+}
+
+// dot product of R^3 vectors
 float dot(float3 v1, float3 v2)
 {
 	return v1.x*v2.x + v1.y*v2.y + v1.z*v2.z;
 }
 
-// cross product of NORMALIZED vectors
+// cross product of R^3 vectors
 float3 cross(float3 v1, float3 v2)
 {
 	return make_float3( v1.y*v2.z - v1.z*v2.y, v1.z*v2.x - v1.x*v2.z, v1.x*v2.y - v1.y*v2.x );
@@ -1542,35 +1586,87 @@ CUTBoolean savePointCloud(vector<Surfel> &pc, const char* path)
 
 CUTBoolean createPointCloud(int mapResolution, vector<Surfel> &pc, Solid* s)
 {
-	Face* face;
+	float2 vt0, vt1, vt2;
 	float2 texelUV[mapResolution][mapResolution];
 	float4 barycentricCooAndId[mapResolution][mapResolution];
 	float du = 1.0 / (float)(mapResolution);
 
 	pc.reserve( mapResolution * mapResolution);
 
-	// place a surfel in the centre of each texel and store its UVs
+	// place a surfel in the centre of each texel and store its UVs;
+	// initialize the barycentric coordinates and face id array.
 	for (int i=0; i < mapResolution; i++)
 	{
 		for (int j=0; j < mapResolution; j++)
 		{
 			texelUV[i][j] = texelCentre( i, j, du);
+			barycentricCooAndId[i][j] = make_float4( 0.0, 0.0, 0.0, -1);
 		}
 	}
 
 	// rasterize faces
 	for (unsigned int id=0; id < s->f.size(); id++)
 	{
-		face = &s->f[id];
+		vt0 = s->vt[ s->f[id].t.x-1 ];
+		vt1 = s->vt[ s->f[id].t.y-1 ];
+		vt2 = s->vt[ s->f[id].t.z-1 ];
 		
+		for (int i=0; i < mapResolution; i++)
+		{
+			for (int j=0; j < mapResolution; j++)
+			{
+				barycentricCooAndId[i][j] = rasterizeCoordinates( id,
+																  texelUV[i][j],
+																  vt0,
+																  vt1,
+																  vt2,
+																  barycentricCooAndId[i][j]);
+			}
+		}
 	}
 	
 	return CUTTrue;
 }
 
-float4 rasterizeCoordinates(int dx, int dy, float2 texelUV, float2 v1, float2 v2, float2 v3)
+bool pointInTriangle(float2 p, float2 t0, float2 t1, float2 t2, float &beta, float &gamma)
 {
+	float2 v0, v1, v2;
+	float dot00, dot01, dot02, dot11, dot12, invDenom;
+
+	// Compute vectors
+	v0 = sub( t2, t0);
+	v1 = sub( t1, t0);
+	v2 = sub( p , t0);
+
+	// Compute dot products
+	dot00 = dot(v0, v0);
+	dot01 = dot(v0, v1);
+	dot02 = dot(v0, v2);
+	dot11 = dot(v1, v1);
+	dot12 = dot(v1, v2);
+
+	// Compute barycentric coordinates
+	invDenom = 1 / (dot00 * dot11 - dot01 * dot01);
+	beta = (dot00 * dot12 - dot01 * dot02) * invDenom;
+	gamma = (dot11 * dot02 - dot01 * dot12) * invDenom;
+
+	// Check if point is in triangle
+	return (beta > 0) && (gamma > 0) && (beta + gamma < 1);
+}
+
+float4 rasterizeCoordinates(int faceId, float2 texelUV, float2 t0, float2 t1, float2 t2, float4 itself)
+{
+	float alpha, beta, gamma;
 	
+	if ( pointInTriangle( texelUV, t0, t1, t2, beta, gamma) )
+	{
+		alpha = 1 - beta - gamma;
+		return make_float4( alpha, beta, gamma, faceId);
+	}
+	else
+	{
+		return itself;
+	}
 }
 
 float2 texelCentre(int dx, int dy, float du)

@@ -1363,50 +1363,47 @@ CUTBoolean preprocessing(int argc, char** argv)
 		surfelMapDim = 64;
 	}
 
-//	cout << "Loading surfels cloud... ";
-//	cout.flush();
-//	dir = "/Developer/GPU Computing/C/src/occlusion/pointClouds/";
-//	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "cloud")) {
-//		cutGetCmdLineArgumentstr( argc, (const char**)argv, "cloud", cfilename );
-//		filename = *cfilename;
-//		path = dir + filename;
-//
-//		if ( !loadPointCloud(path.c_str(), pointCloud)) {
-//			do {
-//				cout << "File \"" << filename << "\" does not exist! Create it? ";
-//				getline(cin, msg);
-//				
-//				if (msg[0] == 'y' || msg[0] == 'Y') {
-//					cout << "Creating surfels cloud..." << endl;
-//					createPointCloud( h_imesh, pointCloud);
-//					cout << "Saving it to \"" << filename << "\"..." << endl;
-//					savePointCloud( pointCloud, path.c_str());
-//				} else if (msg[0] == 'n' || msg[0] == 'N') {
-//					cerr << "Cannot load any surfel cloud. Aborting..." << endl;
-//					return CUTFalse;
-//				} else {
-//					cout << "Answer with 'yes' or 'no'. ";
-//				}
-//			} while (msg.find_first_of("ynYN") != 0);
-//		} else {
-//			cout << "\"" << filename << "\" loaded correctly" << endl;
-//		}
-//	} else {
-//		filename.replace( filename.length()-4, filename.length(), ".sfc" );
-//		path = dir + filename;
-//		
-//		if ( !loadPointCloud( path.c_str(), pointCloud)) {
-	cout << "Creating surfels cloud... ";
+	cout << "Loading surfels cloud... ";
 	cout.flush();
-	createPointCloud( surfelMapDim, pointCloud, h_imesh);
-	cout << "done" << endl;
-	
-//			cout << "Saving it to \"" << filename << "\"..." << endl;
-//			savePointCloud( pointCloud, path.c_str());
-//		} else {
-//			cout << "\"" << filename << "\" loaded correctly" << endl;
-//		}
-//	}
+	dir = "/Developer/GPU Computing/C/src/occlusion/pointClouds/";
+	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "cloud")) {
+		cutGetCmdLineArgumentstr( argc, (const char**)argv, "cloud", cfilename );
+		filename = *cfilename;
+		path = dir + filename;
+
+		if ( !loadPointCloud(path.c_str(), pointCloud)) {
+			do {
+				cout << "File \"" << filename << "\" does not exist! Create it? ";
+				getline(cin, msg);
+				
+				if (msg[0] == 'y' || msg[0] == 'Y') {
+					cout << "Creating surfels cloud..." << endl;
+					createPointCloud( surfelMapDim, pointCloud, h_imesh);
+					cout << "Saving it to \"" << filename << "\"..." << endl;
+					savePointCloud( pointCloud, path.c_str());
+				} else if (msg[0] == 'n' || msg[0] == 'N') {
+					cerr << "Cannot load any surfel cloud. Aborting..." << endl;
+					return CUTFalse;
+				} else {
+					cout << "Answer with 'yes' or 'no'. ";
+				}
+			} while (msg.find_first_of("ynYN") != 0);
+		} else {
+			cout << "\"" << filename << "\" loaded correctly" << endl;
+		}
+	} else {
+		filename.replace( filename.length()-4, filename.length(), ".sfc" );
+		path = dir + filename;
+		
+		if ( !loadPointCloud( path.c_str(), pointCloud)) {
+			cout << "Creating surfels cloud... " << endl;
+			createPointCloud( surfelMapDim, pointCloud, h_imesh);
+			cout << "Saving it to \"" << filename << "\"..." << endl;
+			savePointCloud( pointCloud, path.c_str());
+		} else {
+			cout << "\"" << filename << "\" loaded correctly" << endl;
+		}
+	}
 
 	// calculate occlusion
 //	int multipass;
@@ -1564,12 +1561,6 @@ CUTBoolean savePointCloud(vector<Surfel> &pc, const char* path)
 		}
 		for (unsigned int i=0; i < pc.size(); i++) {
 			file << pc[i].normal.x<<" "<<pc[i].normal.y<<" "<<pc[i].normal.z << endl;
-		}
-		for (unsigned int i=0; i < pc.size(); i++) {
-			file << pc[i].area<<" "<<pc[i].radius<<" "<<pc[i].phi << endl;
-		}
-		for (unsigned int i=0; i < pc.size(); i++) {
-			file << pc[i].rot_axis.x<<" "<<pc[i].rot_axis.y<<" "<<pc[i].rot_axis.z << endl;
 		}
 		
 	} else {
@@ -2172,18 +2163,6 @@ CUTBoolean loadPointCloud(const char* path, vector<Surfel> &pc)
 			getline(file, s_line);
 			line = s_line.c_str();
 			sscanf( line, "%g %g %g", &pc[i].normal.x, &pc[i].normal.y, &pc[i].normal.z);
-		}
-		for (unsigned int i=0; i < n_surfels; i++)
-		{
-			getline(file, s_line);
-			line = s_line.c_str();
-			sscanf( line, "%g %g %g", &pc[i].area, &pc[i].radius, &pc[i].phi);
-		}
-		for (unsigned int i=0; i < n_surfels; i++)
-		{
-			getline(file, s_line);
-			line = s_line.c_str();
-			sscanf( line, "%g %g %g", &pc[i].rot_axis.x, &pc[i].rot_axis.y, &pc[i].rot_axis.z);
 		}
 	} else {
 		return CUTFalse;

@@ -1624,7 +1624,21 @@ CUTBoolean createPointCloud(int mapResolution, vector<Surfel> &pc, Solid* s)
 			}
 		}
 	}
-	
+
+//	for (int i=0; i < mapResolution; i++)
+//	{
+//		for (int j=0; j < mapResolution; j++)
+//		{
+//				printf("( %2d , %2d ) a= %.6f b= %.6f c= %.6f id= %d\n",
+//					   i,
+//					   j,
+//					   barycentricCooAndId[i][j].x,
+//					   barycentricCooAndId[i][j].y,
+//					   barycentricCooAndId[i][j].z,
+//					   (int)barycentricCooAndId[i][j].w);
+//		}
+//	}
+
 	return CUTTrue;
 }
 
@@ -1651,7 +1665,7 @@ bool pointInTriangle(float2 p, float2 t0, float2 t1, float2 t2, float &beta, flo
 	gamma = (dot11 * dot02 - dot01 * dot12) * invDenom;
 
 	// Check if point is in triangle
-	return (beta > 0) && (gamma > 0) && (beta + gamma < 1);
+	return (beta > 0) && (gamma > 0) && (beta + gamma <= 1);
 }
 
 float4 rasterizeCoordinates(int faceId, float2 texelUV, float2 t0, float2 t1, float2 t2, float4 itself)

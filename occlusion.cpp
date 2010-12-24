@@ -1586,12 +1586,14 @@ CUTBoolean savePointCloud(vector<Surfel> &pc, const char* path)
 
 CUTBoolean createPointCloud(int mapResolution, vector<Surfel> &pc, Solid* s)
 {
+	int faceId;
+	float alpha, beta, gamma;
 	float2 vt0, vt1, vt2;
 	float2 texelUV[mapResolution][mapResolution];
+	float3 v0, v1, v2, n0, n1, n2;
 	float4 barycentricCooAndId[mapResolution][mapResolution];
-	float du = 1.0 / (float)(mapResolution);
-
-	pc.reserve( mapResolution * mapResolution);
+	float du = 1.0 / (float)mapResolution;
+	Surfel point;
 
 	// place a surfel in the centre of each texel and store its UVs;
 	// initialize the barycentric coordinates and face id array.
@@ -1638,6 +1640,38 @@ CUTBoolean createPointCloud(int mapResolution, vector<Surfel> &pc, Solid* s)
 //					   (int)barycentricCooAndId[i][j].w);
 //		}
 //	}
+//	cout << endl;
+	for (int i=0; i < mapResolution; i++)
+	{
+		for (int j=0; j < mapResolution; j++)
+		{
+//			printf("%d, %d   ",i,j);
+			faceId = barycentricCooAndId[i][j].w;
+			if ( faceId != -1 )
+			{
+				alpha = barycentricCooAndId[i][j].x;
+				beta  = barycentricCooAndId[i][j].y;
+				gamma = barycentricCooAndId[i][j].z;
+
+				// interpolate surfel position ( alpha*A + beta*B + gamma*C )
+				v0 = s->v[ s->f[ faceId ].v.x-1 ].pos;
+				v1 = s->v[ s->f[ faceId ].v.y-1 ].pos;
+				v2 = s->v[ s->f[ faceId ].v.z-1 ].pos;
+				point.pos = add( add( mul( alpha, v0), mul( beta, v1)), mul( gamma, v2));
+
+				// interpolate surfel normal ( alpha*Na + beta*Nb + gamma*Nc )
+				n0 = s->vn[ s->f[ faceId ].n.x-1 ];
+				n1 = s->vn[ s->f[ faceId ].n.y-1 ];
+				n2 = s->vn[ s->f[ faceId ].n.z-1 ];
+				point.normal = normalizeVector( add( add( mul( alpha, n0), mul( beta, n1)), mul( gamma, n2)));
+
+				// store surfel
+				pc.push_back( point);
+//				printf("used %lu of %lu   x= %f, y= %f, z= %f",pc.size(),pc.capacity(),point.normal.x,point.normal.y,point.normal.z);
+			}
+//			cout << endl;
+		}
+	}
 
 	return CUTTrue;
 }

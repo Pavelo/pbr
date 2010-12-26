@@ -76,6 +76,8 @@ struct _Face
 	uint3 n;
 	Halfedge* he;	// one of the half-edges bordering the face
 	float area;
+	float3 centroid;
+	float3 normal;
 };
 
 struct _Solid
@@ -100,6 +102,7 @@ struct _Surfel {
 	float3 pos;
 	float3 normal;
 	float3 bentNormal;
+	int faceId;
 	float area;
 	float radius;         // radius of a circle with this surfel area (for displaying purpose)
 	float phi;            // angle between initial normal and actual normal (for displaying purpose)
@@ -162,7 +165,8 @@ float halfedgeLength( Vertex* v1, Vertex* v2);
 float semiperimeter( vector<float> length);
 CUTBoolean faceArea( Solid* s);
 float surfelArea( Vertex* v);
-float3 faceCentroid( Face* v);
+float3 faceCentroid( Face* f, Solid* s);
+float3 faceNormal( Face* f, Solid* s);
 float3 getVector( Halfedge* he);
 float3 getVector( float3 tail, float3 head);
 float3 reverseVector( float3 v);
@@ -178,7 +182,7 @@ bool pointInTriangle( float2 p, float2 t0, float2 t1, float2 t2, float &beta, fl
 float4 rasterizeCoordinates( int faceId, float2 texelUV, float2 t0, float2 t1, float2 t2, float4 itself);
 CUTBoolean occlusion( int passes, vector<Surfel> &pc, Solid* s);
 float formFactor_pA( Surfel* receiver, Face* emitterF);
-float surfelShadow( Surfel* emitter, Surfel* receiver, float3 &receiverVector, Face* ef);
+float surfelShadow( Solid* s, Surfel* receiver, Face* emitter, float3 &receiverVector);
 float colorBleeding( Surfel* receiver, Surfel* emitter, float3 &receiverVector);
 
 // GL functionality
@@ -1353,6 +1357,13 @@ CUTBoolean preprocessing(int argc, char** argv)
 		cerr << "UVs not mapped!\nPlease, load a mesh with mapped texture coordinates." << endl;
 		return CUTFalse;
 	}
+	// calculate face centroid and normal
+	Face* tempF;
+	for (unsigned int i=0;  i < h_imesh->f.size(); i++) {
+		tempF = &h_imesh->f[i];
+		tempF->centroid = faceCentroid( tempF, h_imesh);
+		tempF->normal = faceNormal( tempF, h_imesh);
+	}
 	cout << "done" << endl;
 	
 	// create or load point cloud
@@ -1562,6 +1573,9 @@ CUTBoolean savePointCloud(vector<Surfel> &pc, const char* path)
 		for (unsigned int i=0; i < pc.size(); i++) {
 			file << pc[i].normal.x<<" "<<pc[i].normal.y<<" "<<pc[i].normal.z << endl;
 		}
+		for (unsigned int i=0; i < pc.size(); i++) {
+			file << pc[i].faceId << endl;
+		}
 		
 	} else {
 		cerr << "Error opening file \"" << path << "\"" << endl;
@@ -1657,6 +1671,7 @@ CUTBoolean createPointCloud(int mapResolution, vector<Surfel> &pc, Solid* s)
 				point.normal = normalizeVector( add( add( mul( alpha, n0), mul( beta, n1)), mul( gamma, n2)));
 
 				// store surfel
+				point.faceId = faceId;
 				pc.push_back( point);
 //				printf("used %lu of %lu   x= %f, y= %f, z= %f",pc.size(),pc.capacity(),point.normal.x,point.normal.y,point.normal.z);
 			}
@@ -1718,25 +1733,33 @@ float2 texelCentre(int dx, int dy, float du)
 	return uv;
 }
 
-float3 faceCentroid(Face* f)
+float3 faceCentroid(Face* f, Solid* s)
 {
-	float3 pos;
-	Halfedge* cur;
+	float3 p, v0, v1, v2;
 
-	pos = make_float3( 0.0, 0.0, 0.0);
-	cur = f->he;
-	do {
-		pos.x += cur->vert->pos.x;
-		pos.y += cur->vert->pos.y;
-		pos.z += cur->vert->pos.z;
-		cur = cur->next;
-	} while (cur != f->he);
+	v0 = s->v[ f->v.x-1 ].pos;
+	v1 = s->v[ f->v.y-1 ].pos;
+	v2 = s->v[ f->v.z-1 ].pos;
+	p = add( add( v0, v1), v2);
+	p.x /= 3.0;
+	p.y /= 3.0;
+	p.z /= 3.0;
+
+	return p;
+}
+
+float3 faceNormal(Face* f, Solid* s)
+{
+	float3 v0, v1, v2, a, b;
 	
-	pos.x /= 3;
-	pos.y /= 3;
-	pos.z /= 3;
-
-	return pos;
+	v0 = s->v[ f->v.x-1 ].pos;
+	v1 = s->v[ f->v.y-1 ].pos;
+	v2 = s->v[ f->v.z-1 ].pos;
+	
+	a = getVector( v0, v1);
+	b = getVector( v0, v2);
+	
+	return normalizeVector( cross( a, b));
 }
 
 void visibleQuad(float3 p, float3 n, float3 v0, float3 v1, float3 v2, float3 &q0, float3 &q1, float3 &q2, float3 &q3)
@@ -1974,27 +1997,19 @@ float formFactor_pA(Surfel* receiver, float3 q0, float3 q1, float3 q2, float3 q3
 	return fpa;
 }
 
-float surfelShadow(Surfel* receiver, Surfel* emitter, float3 &receiverVector, Face* ef)
+float surfelShadow(Solid* s, Surfel* receiver, Face* emitter, float3 &receiverVector)
 {
-	float distance, dSquared;
-	float3 v, emitterVector, q0, q1, q2, q3;
+	float3 emitterVector, q0, q1, q2, q3;
 	
-	v = getVector( receiver->pos, emitter->pos);
-	distance = norm( v);
-	dSquared = distance * distance;
-	receiverVector = normalizeVector( v);
+	receiverVector = normalizeVector( getVector( receiver->pos, emitter->centroid));
 //	printf("     receiverVector ( %f, %f, %f )\n",receiverVector.x,receiverVector.y,receiverVector.z);
 	emitterVector = reverseVector( receiverVector);
 	
-	if (receiver == emitter) {
-		return 0.0;
-	}
-
 	visibleQuad( receiver->pos,
 				 receiver->normal,
-				 ef->he->vert->pos,
-				 ef->he->next->vert->pos,
-				 ef->he->prev->vert->pos,
+				 s->v[ emitter->v.x-1 ].pos,
+				 s->v[ emitter->v.y-1 ].pos,
+				 s->v[ emitter->v.z-1 ].pos,
 				 q0, q1, q2, q3);
 
 //	return (1 - 1 / sqrt( (emitter->area / PI) / dSquared + 1))
@@ -2043,27 +2058,30 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc, Solid* s)
 			sshadow_total = .0f;
 			if (k == passes)
 				pc[i].bentNormal = pc[i].normal;
-			for (unsigned int j=0; j < pc.size(); j++)
+			for (unsigned int j=0; j < s->f.size(); j++)
 			{
-				if (k == 1)
+				if ( pc[i].faceId != (int)j ) // if surfel doesn't lay on current face
 				{
-					sshadow = surfelShadow( &pc[i], &pc[j], recVec, &s->f[j]);
-					sshadow_total += sshadow;
-				}
-				else if (k == 2)
-				{
-					sshadow = surfelShadow( &pc[i], &pc[j], recVec, &s->f[j]) * pc[j].accessibility;
-					sshadow_total += sshadow;
-				}
-				else if (k == 3)
-				{
-					sshadow = surfelShadow( &pc[i], &pc[j], recVec, &s->f[j]) * pc[j].acc_2nd_pass;
-					sshadow_total += sshadow;
-				}
-				if (k == passes)
-				{
-					pc[i].bentNormal = sub( pc[i].bentNormal, mul( sshadow, recVec));
-//					printf("%4i recVec         ( %f, %f, %f )\n",i,recVec.x,recVec.y,recVec.z);
+					if (k == 1)
+					{
+						sshadow = surfelShadow( s, &pc[i], &s->f[j], recVec);
+						sshadow_total += sshadow;
+					}
+					else if (k == 2)
+					{
+						sshadow = surfelShadow( s, &pc[i], &s->f[j], recVec) * pc[j].accessibility;
+						sshadow_total += sshadow;
+					}
+					else if (k == 3)
+					{
+						sshadow = surfelShadow( s, &pc[i], &s->f[j], recVec) * pc[j].acc_2nd_pass;
+						sshadow_total += sshadow;
+					}
+					if (k == passes)
+					{
+						pc[i].bentNormal = sub( pc[i].bentNormal, mul( sshadow, recVec));
+						//					printf("%4i recVec         ( %f, %f, %f )\n",i,recVec.x,recVec.y,recVec.z);
+					}
 				}
 			}
 			if (k == 1)
@@ -2163,6 +2181,11 @@ CUTBoolean loadPointCloud(const char* path, vector<Surfel> &pc)
 			getline(file, s_line);
 			line = s_line.c_str();
 			sscanf( line, "%g %g %g", &pc[i].normal.x, &pc[i].normal.y, &pc[i].normal.z);
+		}
+		for (unsigned int i=0; i < n_surfels; i++) {
+			getline(file, s_line);
+			line = s_line.c_str();
+			sscanf( line, "%d", &pc[i].faceId);
 		}
 	} else {
 		return CUTFalse;

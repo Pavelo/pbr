@@ -37,7 +37,7 @@ using namespace std;
 #define PI 3.14159265358979323846f
 #define POLY_CUBE  0
 #define POINTS     1
-#define SURFELS    2
+#define NORMALS    2
 #define POLYS      3
 #define OCCLUSION  4
 #define OCC_DOUBLE 5
@@ -191,6 +191,7 @@ CUTBoolean loadMTL( const char* path, Solid* model);
 CUTBoolean loadOBJ( const char* path, Solid* model);
 void drawCube( float size);
 void drawSolid( Solid* model);
+void drawFaceNormals( Solid* s);
 void drawPointCloud( vector<Surfel> &cloud);
 void drawSurfel( Surfel* sf);
 void drawPoint( Surfel* sf);
@@ -491,9 +492,12 @@ void display()
 			drawSolid(h_imesh);
 			break;
 
-		case SURFELS:
 		case POINTS:
 			drawPointCloud(pointCloud);
+			break;
+
+		case NORMALS:
+			drawFaceNormals(h_imesh);
 			break;
 
 		case POLY_CUBE:
@@ -566,9 +570,9 @@ void keyboard(unsigned char key, int /*x*/, int /*y*/)
 			break;
 			
 	// surfel view
-//		case '2':
-//			view_model = SURFELS;
-//			break;
+		case '2':
+			view_model = NORMALS;
+			break;
 			
 	// polygonal view, occlusion rendering
 		case '3':
@@ -1447,26 +1451,23 @@ void setLighting()
 	glEnable(GL_LIGHT0);
 }
 
+void drawFaceNormals(Solid* s)
+{
+	glBegin(GL_LINES);
+		glColor3f( 1.f, 1.f, 1.f);
+	for (unsigned int i=0; i < s->f.size(); i++) {
+		glVertex3f( s->f[i].centroid.x, s->f[i].centroid.y, s->f[i].centroid.z);
+		glVertex3f( s->f[i].normal.x+s->f[i].centroid.x, s->f[i].normal.y+s->f[i].centroid.y, s->f[i].normal.z+s->f[i].centroid.z);
+	}
+	glEnd();
+}
+
 void drawPointCloud(vector<Surfel> &cloud)
 {
-	if (view_model == POINTS) {
-		glBegin(GL_POINTS);
-	}
+	glBegin(GL_POINTS);
 	for (unsigned int i=0; i < cloud.size(); i++)
-	{
-		if (view_model == SURFELS)
-		{
-			glColor3f( cloud[i].accessibility, cloud[i].accessibility, cloud[i].accessibility);
-			drawSurfel( &cloud[i]);
-		}
-		else if (view_model == POINTS)
-		{
-			drawPoint( &cloud[i]);
-		}
-	}
-	if (view_model == POINTS) {
-		glEnd();
-	}
+		drawPoint( &cloud[i]);
+	glEnd();
 }
 
 void drawSurfel(Surfel* sf)

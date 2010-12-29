@@ -44,6 +44,8 @@ CCFILES		     := occlusion.cpp
 USEGLLIB             := 1
 USEGLUT	             := 1
 USERENDERCHECKGL     := 1
+# Link DevIL image handling library
+LINKFLAGS = -lIL -lILU -lILUT
 
 ################################################################################
 # Rules and targets

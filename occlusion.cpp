@@ -4,6 +4,8 @@
 #  include <windows.h>
 #endif
 
+#define ILUT_USE_OPENGL
+
 // includes, system
 #include <stdlib.h>
 #include <stdio.h>
@@ -22,7 +24,12 @@
 #include <GL/glut.h>
 #endif
 
-// includes
+// includes, DevIL
+#include <IL/il.h>
+#include <IL/ilu.h>
+#include <IL/ilut.h>
+
+// includes, CUDA
 #include <cuda_runtime.h>
 #include <cutil_inline.h>
 #include <cutil_gl_inline.h>
@@ -132,6 +139,7 @@ bool altPressed = false;
 GLuint shaderSelected = 0, shaderID = 0;
 GLint loc0;
 bool ao_lastPass = true;
+int surfelMapDim;
 int counter = 0;
 
 // mouse controls
@@ -174,7 +182,7 @@ CUTBoolean preprocessing( int argc, char** argv);
 CUTBoolean run( int argc, char** argv);
 void cleanup();
 void setLighting();
-void setTexture( GLuint id, GLsizei size);
+void setAOTexture( GLuint id, GLsizei size);
 CUTBoolean createPointCloud( int mapResolution, vector<Surfel> &pc, Solid* s);
 CUTBoolean savePointCloud( vector<Surfel> &pc, const char* path);
 CUTBoolean loadPointCloud( const char* path, vector<Surfel> &pc);
@@ -231,6 +239,7 @@ float3 cross( float3 v1, float3 v2);
 float3 normalsAverage( vector<float3> normals, vector<float> weights);
 float clamp( float val, float inf = 0.0f, float sup = 1.0f);
 float abs( float n);
+float round( float n);
 float2 add( float2 a, float2 b);
 float2 sub( float2 a, float2 b);
 float2 mul( float2 a, float2 b);
@@ -349,7 +358,7 @@ CUTBoolean initGL(int argc, char **argv)
 	shaderID = setShaders( vs_path, fs_path);
 
 	// texturing
-	setTexture( 0, 256);
+	setAOTexture( 0, surfelMapDim);
 
     CUT_CHECK_ERROR_GL();
 
@@ -1319,6 +1328,11 @@ float abs(float n)
 	return max( -n, n);
 }
 
+float round(float n)
+{
+	return floor( n + 0.5);
+}
+
 float surfelArea(Vertex* v)
 {
 	Halfedge* hedge = v->he;
@@ -1375,7 +1389,6 @@ CUTBoolean preprocessing(int argc, char** argv)
 	cout << "done" << endl;
 	
 	// create or load point cloud
-	int surfelMapDim;
 	if ( cutCheckCmdLineFlag( argc, (const char**)argv, "map")) {
 		cutGetCmdLineArgumenti( argc, (const char**)argv, "map", &surfelMapDim);
 	} else {
@@ -1423,10 +1436,13 @@ CUTBoolean preprocessing(int argc, char** argv)
 			cout << "\"" << filename << "\" loaded correctly" << endl;
 		}
 	}
-	
+
+	ilInit();
+	iluInit();
+
 	// WHERE IT MUST BE PLACED?
 //	glGenTextures(1, &h_imesh->textureId);
-//	setTexture( h_imesh->textureId, surfelMapDim);
+//	setAOTexture( h_imesh->textureId, surfelMapDim);
 
 	// calculate occlusion
 //	int multipass;
@@ -1459,43 +1475,58 @@ void setLighting()
 	glEnable(GL_LIGHT0);
 }
 
-void checkersTexture(float* data, int dim, int checkers = 2, float color0 = 0.0, float color1 = 1.0)
+void checkersTexture(float* texel, int dim, float color0 = 0.0, float color1 = 1.0)
+{
+	float finalColor;
+	
+	for (int i=0; i < dim; i++)
+	{
+		for (int j=0; j < dim; j++)
+		{
+			finalColor = (i + j) % 2;
+			texel[i*dim+j] = clamp( finalColor, color0, color1);
+		}
+	}
+}
+
+void noiseTexture(float* texel, int dim)
 {
 	for (int i=0; i < dim; i++)
 	{
 		for (int j=0; j < dim; j++)
 		{
-			data[i*dim+j] = clamp( sin( (i*dim+j) * (checkers*checkers*PI) / (float)(dim * dim)), color0, color1);
+			texel[i*dim+j] = (float)rand() / (float)RAND_MAX;
 		}
 	}
 }
 
-void noiseTexture(float* data, int dim)
+void testAO(float* texel, int dim)
 {
 	for (int i=0; i < dim; i++)
 	{
 		for (int j=0; j < dim; j++)
 		{
-			data[i*dim+j] = (float)rand() / (float)RAND_MAX;
+			texel[i*dim+j] = (float)(i*dim+j) / (float)(dim*dim);
 		}
 	}
 }
 
-void setTexture(GLuint id, GLsizei size)
+void setAOTexture(GLuint id, GLsizei size)
 {
 	float imgData[size * size];
 	
-	noiseTexture( imgData, size);
-//	checkersTexture( imgData, size, 3, 0.2, 0.7);
+//	noiseTexture( imgData, size);
+	checkersTexture( imgData, size, 0.2, 1.0);
+//	testAO( imgData, size);
 	
 	glBindTexture (GL_TEXTURE_2D, id);
     glPixelStorei (GL_UNPACK_ALIGNMENT, 1);
     glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-	//glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	//glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+//    glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+//    glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexEnvf (GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, size, size, 0, GL_LUMINANCE, GL_FLOAT, imgData);
 }

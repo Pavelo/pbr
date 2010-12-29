@@ -93,7 +93,7 @@ struct _Solid
 	float specular[3];
 	float shininess;
 	
-	int textureId;
+	GLuint textureId;
 	string* textureName;
 	string* texturePath;
 };
@@ -174,6 +174,7 @@ CUTBoolean preprocessing( int argc, char** argv);
 CUTBoolean run( int argc, char** argv);
 void cleanup();
 void setLighting();
+void setTexture( GLuint id, GLsizei size);
 CUTBoolean createPointCloud( int mapResolution, vector<Surfel> &pc, Solid* s);
 CUTBoolean savePointCloud( vector<Surfel> &pc, const char* path);
 CUTBoolean loadPointCloud( const char* path, vector<Surfel> &pc);
@@ -341,12 +342,15 @@ CUTBoolean initGL(int argc, char **argv)
 	
 	// lighting
 	setLighting();
-	
+
 	// shading
 	char vs_path[] = "/Developer/GPU Computing/C/src/occlusion/GLSL/dispAO_perFrag.vs";
 	char fs_path[] = "/Developer/GPU Computing/C/src/occlusion/GLSL/dispAO_perFrag.fs";
 	shaderID = setShaders( vs_path, fs_path);
-	
+
+	// texturing
+	setTexture( 0, 256);
+
     CUT_CHECK_ERROR_GL();
 
     return CUTTrue;
@@ -965,8 +969,8 @@ void drawSolid(Solid* model)
 //	glMaterialfv(GL_FRONT, GL_SPECULAR, model->specular);
 //	glMaterialf(GL_FRONT, GL_SHININESS, model->shininess);
 	
-//	glEnable(GL_TEXTURE_2D);
-//	glBindTexture(GL_TEXTURE_2D, model->textureId);
+	glEnable(GL_TEXTURE_2D);
+//	glBindTexture(GL_TEXTURE_2D, 0);
 
 	glEnable(GL_LIGHTING);
 
@@ -974,19 +978,19 @@ void drawSolid(Solid* model)
 	for (unsigned int i=0; i < model->f.size(); i++)
 	{
 		glNormal3f(model->vn[model->f[i].n.x-1].x, model->vn[model->f[i].n.x-1].y, model->vn[model->f[i].n.x-1].z);
-//		glTexCoord2f(model->vt[model->f[i].t.x-1].x, model->vt[model->f[i].t.x-1].y);
+		glTexCoord2f(model->vt[model->f[i].t.x-1].x, model->vt[model->f[i].t.x-1].y);
 		if (ao_lastPass) glVertexAttrib1f( loc0, pointCloud[i].acc_3rd_pass);
 		else             glVertexAttrib1f( loc0, pointCloud[i].accessibility);
 		glVertex3f(model->v[model->f[i].v.x-1].pos.x, model->v[model->f[i].v.x-1].pos.y, model->v[model->f[i].v.x-1].pos.z);
 		
 		glNormal3f(model->vn[model->f[i].n.y-1].x, model->vn[model->f[i].n.y-1].y, model->vn[model->f[i].n.y-1].z);
-//		glTexCoord2f(model->vt[model->f[i].t.y-1].x, model->vt[model->f[i].t.y-1].y);
+		glTexCoord2f(model->vt[model->f[i].t.y-1].x, model->vt[model->f[i].t.y-1].y);
 		if (ao_lastPass) glVertexAttrib1f( loc0, pointCloud[i].acc_3rd_pass);
 		else             glVertexAttrib1f( loc0, pointCloud[i].accessibility);
 		glVertex3f(model->v[model->f[i].v.y-1].pos.x, model->v[model->f[i].v.y-1].pos.y, model->v[model->f[i].v.y-1].pos.z);
 		
 		glNormal3f(model->vn[model->f[i].n.z-1].x, model->vn[model->f[i].n.z-1].y, model->vn[model->f[i].n.z-1].z);
-//		glTexCoord2f(model->vt[model->f[i].t.z-1].x, model->vt[model->f[i].t.z-1].y);
+		glTexCoord2f(model->vt[model->f[i].t.z-1].x, model->vt[model->f[i].t.z-1].y);
 		if (ao_lastPass) glVertexAttrib1f( loc0, pointCloud[i].acc_3rd_pass);
 		else             glVertexAttrib1f( loc0, pointCloud[i].accessibility);
 		glVertex3f(model->v[model->f[i].v.z-1].pos.x, model->v[model->f[i].v.z-1].pos.y, model->v[model->f[i].v.z-1].pos.z);
@@ -1003,7 +1007,7 @@ void drawSolid(Solid* model)
 	glEnd();
 
 	glDisable(GL_LIGHTING);
-//	glDisable(GL_TEXTURE_2D);
+	glDisable(GL_TEXTURE_2D);
 }
 
 void displayBentNormal(Solid* model, vector<Surfel> &pc)
@@ -1419,6 +1423,10 @@ CUTBoolean preprocessing(int argc, char** argv)
 			cout << "\"" << filename << "\" loaded correctly" << endl;
 		}
 	}
+	
+	// WHERE IT MUST BE PLACED?
+//	glGenTextures(1, &h_imesh->textureId);
+//	setTexture( h_imesh->textureId, surfelMapDim);
 
 	// calculate occlusion
 //	int multipass;
@@ -1449,6 +1457,47 @@ void setLighting()
 	
 	glEnable(GL_CULL_FACE);
 	glEnable(GL_LIGHT0);
+}
+
+void checkersTexture(float* data, int dim, int checkers = 2, float color0 = 0.0, float color1 = 1.0)
+{
+	for (int i=0; i < dim; i++)
+	{
+		for (int j=0; j < dim; j++)
+		{
+			data[i*dim+j] = clamp( sin( (i*dim+j) * (checkers*checkers*PI) / (float)(dim * dim)), color0, color1);
+		}
+	}
+}
+
+void noiseTexture(float* data, int dim)
+{
+	for (int i=0; i < dim; i++)
+	{
+		for (int j=0; j < dim; j++)
+		{
+			data[i*dim+j] = (float)rand() / (float)RAND_MAX;
+		}
+	}
+}
+
+void setTexture(GLuint id, GLsizei size)
+{
+	float imgData[size * size];
+	
+	noiseTexture( imgData, size);
+//	checkersTexture( imgData, size, 3, 0.2, 0.7);
+	
+	glBindTexture (GL_TEXTURE_2D, id);
+    glPixelStorei (GL_UNPACK_ALIGNMENT, 1);
+    glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	//glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	//glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexEnvf (GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, size, size, 0, GL_LUMINANCE, GL_FLOAT, imgData);
 }
 
 void drawFaceNormals(Solid* s)

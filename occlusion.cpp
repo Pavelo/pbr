@@ -182,7 +182,7 @@ CUTBoolean preprocessing( int argc, char** argv);
 CUTBoolean run( int argc, char** argv);
 void cleanup();
 void setLighting();
-void setAOTexture( GLuint id, GLsizei size);
+void setAOTexture();
 CUTBoolean createPointCloud( int mapResolution, vector<Surfel> &pc, Solid* s);
 CUTBoolean savePointCloud( vector<Surfel> &pc, const char* path);
 CUTBoolean loadPointCloud( const char* path, vector<Surfel> &pc);
@@ -193,6 +193,10 @@ CUTBoolean occlusion( int passes, vector<Surfel> &pc, Solid* s);
 float formFactor_pA( Surfel* receiver, Face* emitterF);
 float surfelShadow( Solid* s, Surfel* receiver, Face* emitter, float3 &receiverVector);
 float colorBleeding( Surfel* receiver, Surfel* emitter, float3 &receiverVector);
+
+// IL functionality
+bool initIL();
+bool handleDevILErrors();
 
 // GL functionality
 CUTBoolean initGL( int argc, char** argv);
@@ -209,6 +213,9 @@ void displayOcclusion( Solid* s, vector<Surfel> &pc);
 void displayOcclusionDoublePass( Solid* s, vector<Surfel> &pc);
 void displayOcclusionTriplePass( Solid* s, vector<Surfel> &pc);
 void displayBentNormal( Solid* model, vector<Surfel> &pc);
+void noiseTexture( float* texel, int dim);
+void checkersTexture( float* texel, int dim, float color0 = 0.0, float color1 = 1.0);
+void testAO( float* texel, int dim);
 
 // GLSL functionality
 char* textFileRead(char *fn);
@@ -302,6 +309,46 @@ void computeFPS()
     }
  }
 
+// initialize DevIL
+bool initIL()
+{
+	// Check version number to know if it's all updated
+	if (ilGetInteger(IL_VERSION_NUM) < IL_VERSION ||
+		iluGetInteger(ILU_VERSION_NUM) < ILU_VERSION ||
+		ilutGetInteger(ILUT_VERSION_NUM) < ILUT_VERSION)
+	{
+		cerr << "DevIL library is out of date! Please upgrade\n";
+		return false;
+	}
+	// Needed to initialize DeviIL
+	ilInit();
+	iluInit();
+	
+	// GL cannot use palettes anyway, so convert early.
+	ilEnable (IL_CONV_PAL);
+	
+	// Gets rid of dithering on some nVidia-based cards.
+	ilutEnable (ILUT_OPENGL_CONV);
+	
+	return true;
+}
+
+bool handleDevILErrors()
+{
+	ILenum error = ilGetError();
+	
+	if (error != IL_NO_ERROR)
+	{
+		while ( error != IL_NO_ERROR )
+		{
+			cerr << "DevIL error: " << iluErrorString(error) << endl;
+			error = ilGetError();
+		}
+		return false;
+	}
+	return true;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 //! Initialize GL
 ////////////////////////////////////////////////////////////////////////////////
@@ -358,7 +405,10 @@ CUTBoolean initGL(int argc, char **argv)
 	shaderID = setShaders( vs_path, fs_path);
 
 	// texturing
-	setAOTexture( 0, surfelMapDim);
+	setAOTexture();
+//	ilutInit();
+//	ilutRenderer( ILUT_OPENGL);
+//	ilutGLBindTexImage();
 
     CUT_CHECK_ERROR_GL();
 
@@ -1358,6 +1408,9 @@ CUTBoolean preprocessing(int argc, char** argv)
 	cfilename = (char**) malloc(sizeof(char));
 	h_imesh = (Solid*) malloc(sizeof(Solid));
 	
+	if ( !initIL() ) // initialize DevIL
+		return CUTFalse;
+	
 	dir = "/Developer/GPU Computing/C/src/occlusion/polyModels/";
 	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "mesh")) {
 		cutGetCmdLineArgumentstr( argc, (const char**)argv, "mesh", cfilename);
@@ -1398,12 +1451,14 @@ CUTBoolean preprocessing(int argc, char** argv)
 	cout << "Loading surfels cloud... ";
 	cout.flush();
 	dir = "/Developer/GPU Computing/C/src/occlusion/pointClouds/";
-	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "cloud")) {
+	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "cloud"))
+	{ // point cloud passed by argument
 		cutGetCmdLineArgumentstr( argc, (const char**)argv, "cloud", cfilename );
 		filename = *cfilename;
 		path = dir + filename;
 
-		if ( !loadPointCloud(path.c_str(), pointCloud)) {
+		if ( !loadPointCloud(path.c_str(), pointCloud))
+		{ // point cloud doesn't exist
 			do {
 				cout << "File \"" << filename << "\" does not exist! Create it? ";
 				getline(cin, msg);
@@ -1420,29 +1475,69 @@ CUTBoolean preprocessing(int argc, char** argv)
 					cout << "Answer with 'yes' or 'no'. ";
 				}
 			} while (msg.find_first_of("ynYN") != 0);
-		} else {
+		}
+		else
+		{ // point cloud exists
 			cout << "\"" << filename << "\" loaded correctly" << endl;
 		}
-	} else {
+	}
+	else
+	{ // default point cloud
 		filename.replace( filename.length()-4, filename.length(), ".sfc" );
 		path = dir + filename;
 		
-		if ( !loadPointCloud( path.c_str(), pointCloud)) {
+		if ( !loadPointCloud( path.c_str(), pointCloud))
+		{ // point cloud doesn't exist
 			cout << "Creating surfels cloud... " << endl;
 			createPointCloud( surfelMapDim, pointCloud, h_imesh);
 			cout << "Saving it to \"" << filename << "\"..." << endl;
 			savePointCloud( pointCloud, path.c_str());
-		} else {
+		}
+		else
+		{ // point cloud exists
 			cout << "\"" << filename << "\" loaded correctly" << endl;
 		}
 	}
 
-	ilInit();
-	iluInit();
+	// load ambient occlusion texture
+	ILuint imgId;
+	dir = "/Developer/GPU Computing/C/src/occlusion/occlusionTextures/";
+	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "texture"))
+	{ // picture is passed by argument
+		cutGetCmdLineArgumentstr( argc, (const char**)argv, "texture", cfilename);
+		filename = *cfilename;
+		path = dir + filename;
+		
+		ilGenImages( 1, &imgId);
+		ilBindImage( imgId);
+		if ( !ilLoadImage( path.c_str()) )
+		{ // picture doesn't exist
+			handleDevILErrors();
+		}
+		else
+		{ // picture exists
+			cout << "Ambient occlusion map \"" << filename << "\" loaded correctly" << endl;
+		}
+	}
+	else
+	{ // default picture
+		cutGetCmdLineArgumentstr( argc, (const char**)argv, "mesh", cfilename);
+		filename = *cfilename;
+		filename.replace( filename.length()-4, filename.length(), ".tif" );
+		path = dir + filename;
 
-	// WHERE IT MUST BE PLACED?
-//	glGenTextures(1, &h_imesh->textureId);
-//	setAOTexture( h_imesh->textureId, surfelMapDim);
+		ilGenImages( 1, &imgId);
+		ilBindImage( imgId);
+		if ( !ilLoadImage( path.c_str()) )
+		{ // picture doesn't exist
+			handleDevILErrors();
+		}
+		else
+		{ // picture exists
+			cout << "Ambient occlusion map \"" << filename << "\" loaded correctly" << endl;
+		}
+	}
+
 
 	// calculate occlusion
 //	int multipass;
@@ -1475,7 +1570,7 @@ void setLighting()
 	glEnable(GL_LIGHT0);
 }
 
-void checkersTexture(float* texel, int dim, float color0 = 0.0, float color1 = 1.0)
+void checkersTexture(float* texel, int dim, float color0, float color1)
 {
 	float finalColor;
 	
@@ -1511,15 +1606,20 @@ void testAO(float* texel, int dim)
 	}
 }
 
-void setAOTexture(GLuint id, GLsizei size)
+void setAOTexture()
 {
-	float imgData[size * size];
+	GLuint tid;
+	ILubyte* occImg;
 	
+//	float imgData[size * size];
 //	noiseTexture( imgData, size);
-	checkersTexture( imgData, size, 0.2, 1.0);
+//	checkersTexture( imgData, size, 0.2, 1.0);
 //	testAO( imgData, size);
 	
-	glBindTexture (GL_TEXTURE_2D, id);
+	occImg = ilGetData();
+	
+	glGenTextures (1, &tid);
+	glBindTexture (GL_TEXTURE_2D, tid);
     glPixelStorei (GL_UNPACK_ALIGNMENT, 1);
     glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
@@ -1528,7 +1628,15 @@ void setAOTexture(GLuint id, GLsizei size)
 	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 //    glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexEnvf (GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, size, size, 0, GL_LUMINANCE, GL_FLOAT, imgData);
+	glTexImage2D(GL_TEXTURE_2D,
+				 0,
+				 GL_LUMINANCE,
+				 ilGetInteger( IL_IMAGE_WIDTH),
+				 ilGetInteger( IL_IMAGE_HEIGHT),
+				 0,
+				 GL_LUMINANCE,
+				 GL_UNSIGNED_BYTE,
+				 occImg);
 }
 
 void drawFaceNormals(Solid* s)

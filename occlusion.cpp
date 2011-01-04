@@ -189,7 +189,7 @@ CUTBoolean loadPointCloud( const char* path, vector<Surfel> &pc);
 float2 texelCentre( int dx, int dy, float du);
 bool pointInTriangle( float2 p, float2 t0, float2 t1, float2 t2, float &beta, float &gamma);
 float4 rasterizeCoordinates( int faceId, float2 texelUV, float2 t0, float2 t1, float2 t2, float4 itself);
-CUTBoolean occlusion( int passes, vector<Surfel> &pc, Solid* s);
+CUTBoolean occlusion( int passes, vector<Surfel> &pc, Solid* s, float* accessibility);
 float formFactor_pA( Surfel* receiver, Face* emitterF);
 float surfelShadow( Solid* s, Surfel* receiver, Face* emitter, float3 &receiverVector);
 float colorBleeding( Surfel* receiver, Surfel* emitter, float3 &receiverVector);
@@ -1399,6 +1399,24 @@ float surfelArea(Vertex* v)
 	return area_sum * .3333333333f;
 }
 
+void ppp(vector<Surfel> &pc, Solid* s, float* accessibility)
+{
+	for (unsigned int i=0; i < pc.size(); i++)
+	{
+//			for (unsigned int j=0; j < s->f.size(); j++)
+//			{
+		if ( pc[i].faceId != -1 )
+		{ // if surfel lays on a face except the current face
+			accessibility[i] = 0.0;
+		}
+		else {
+			accessibility[i] = 1.0;
+		}
+		
+//			}
+	}
+}
+
 CUTBoolean preprocessing(int argc, char** argv)
 {
 	// load poly mesh
@@ -1466,7 +1484,7 @@ CUTBoolean preprocessing(int argc, char** argv)
 				if (msg[0] == 'y' || msg[0] == 'Y') {
 					cout << "Creating surfels cloud..." << endl;
 					createPointCloud( surfelMapDim, pointCloud, h_imesh);
-					cout << "Saving it to \"" << filename << "\"..." << endl;
+					cout << "Saving to \"" << filename << "\"..." << endl;
 					savePointCloud( pointCloud, path.c_str());
 				} else if (msg[0] == 'n' || msg[0] == 'N') {
 					cerr << "Cannot load any surfel cloud. Aborting..." << endl;
@@ -1490,7 +1508,7 @@ CUTBoolean preprocessing(int argc, char** argv)
 		{ // point cloud doesn't exist
 			cout << "Creating surfels cloud... " << endl;
 			createPointCloud( surfelMapDim, pointCloud, h_imesh);
-			cout << "Saving it to \"" << filename << "\"..." << endl;
+			cout << "Saving to \"" << filename << "\"..." << endl;
 			savePointCloud( pointCloud, path.c_str());
 		}
 		else
@@ -1499,11 +1517,21 @@ CUTBoolean preprocessing(int argc, char** argv)
 		}
 	}
 
-	// load ambient occlusion texture
+	// compute or load ambient occlusion texture
 	ILuint imgId;
+	int multipass;
+	float* acc;
+	
+	if ( cutCheckCmdLineFlag( argc, (const char**)argv, "multipass")) {
+		cutGetCmdLineArgumenti( argc, (const char**)argv, "multipass", &multipass);
+	} else {
+		multipass = 1;
+	}
 	dir = "/Developer/GPU Computing/C/src/occlusion/occlusionTextures/";
+	acc = (float*) malloc( surfelMapDim * surfelMapDim * sizeof(float));
+	
 	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "texture"))
-	{ // picture is passed by argument
+	{ // occlusion map is passed by argument
 		cutGetCmdLineArgumentstr( argc, (const char**)argv, "texture", cfilename);
 		filename = *cfilename;
 		path = dir + filename;
@@ -1511,47 +1539,70 @@ CUTBoolean preprocessing(int argc, char** argv)
 		ilGenImages( 1, &imgId);
 		ilBindImage( imgId);
 		if ( !ilLoadImage( path.c_str()) )
-		{ // picture doesn't exist
+		{ // occlusion map doesn't exist
 			handleDevILErrors();
 		}
 		else
-		{ // picture exists
+		{ // occlusion map exists
 			cout << "Ambient occlusion map \"" << filename << "\" loaded correctly" << endl;
 		}
+		ilConvertImage(IL_LUMINANCE, IL_FLOAT);
 	}
 	else
-	{ // default picture
+	{ // default occlusion map
 		cutGetCmdLineArgumentstr( argc, (const char**)argv, "mesh", cfilename);
 		filename = *cfilename;
-		filename.replace( filename.length()-4, filename.length(), ".tif" );
+		filename.replace( filename.length()-4, filename.length(), ".tga" );
 		path = dir + filename;
 
 		ilGenImages( 1, &imgId);
 		ilBindImage( imgId);
 		if ( !ilLoadImage( path.c_str()) )
-		{ // picture doesn't exist
+		{ // occlusion map doesn't exist
 			handleDevILErrors();
+			cout << "Computing ambient occlusion... ";
+			cout.flush();
+			occlusion( multipass, pointCloud, h_imesh, acc);
+//			ppp( pointCloud, h_imesh, acc);
+			cout << "done" << endl;
+			cout << "Saving to \"" << filename << "\"... ";
+			cout.flush();
+//			unsigned char accu[surfelMapDim*surfelMapDim];
+//			for (int i=0; i<surfelMapDim*surfelMapDim; i++) {
+//				accu[i] = (unsigned char)(acc[i]*255);
+//			}
+			ilTexImage (surfelMapDim, // width
+						surfelMapDim, // height
+						1,            // depth
+						1,            // Bpp
+						IL_LUMINANCE, // format
+						IL_FLOAT,     // type
+						acc);         // data
+			// turn image the right direction
+			iluRotate(90);
+			iluMirror();
+			
+			ilEnable(IL_FILE_OVERWRITE);
+			ilSave( IL_TGA, path.c_str());
+			handleDevILErrors();
+			cout << "done" << endl;
 		}
 		else
-		{ // picture exists
+		{ // occlusion map exists
 			cout << "Ambient occlusion map \"" << filename << "\" loaded correctly" << endl;
 		}
+		ilConvertImage(IL_LUMINANCE, IL_FLOAT);
 	}
 
 
 	// calculate occlusion
-//	int multipass;
-//	if ( cutCheckCmdLineFlag( argc, (const char**)argv, "multipass")) {
-//		cutGetCmdLineArgumenti( argc, (const char**)argv, "multipass", &multipass);
-//	} else {
-//		multipass = 1;
-//	}
 //	cout << "Computing occlusion... ";
 //	cout.flush();
 //	occlusion( multipass, pointCloud, h_imesh);
-//	cout << "done" << endl;
+//	cout << pointCloud.size() << endl;
 
 	free(cfilename);
+	free(acc);
 	
 	return CUTTrue;
 }
@@ -1621,12 +1672,12 @@ void setAOTexture()
 	glGenTextures (1, &tid);
 	glBindTexture (GL_TEXTURE_2D, tid);
     glPixelStorei (GL_UNPACK_ALIGNMENT, 1);
-    glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+    glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
 	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-//    glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-//    glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+//	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+//	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexEnvf (GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
 	glTexImage2D(GL_TEXTURE_2D,
 				 0,
@@ -1635,7 +1686,7 @@ void setAOTexture()
 				 ilGetInteger( IL_IMAGE_HEIGHT),
 				 0,
 				 GL_LUMINANCE,
-				 GL_UNSIGNED_BYTE,
+				 GL_FLOAT,
 				 occImg);
 }
 
@@ -1858,12 +1909,11 @@ CUTBoolean createPointCloud(int mapResolution, vector<Surfel> &pc, Solid* s)
 				n1 = s->vn[ s->f[ faceId ].n.y-1 ];
 				n2 = s->vn[ s->f[ faceId ].n.z-1 ];
 				point.normal = normalizeVector( add( add( mul( alpha, n0), mul( beta, n1)), mul( gamma, n2)));
-
-				// store surfel
-				point.faceId = faceId;
-				pc.push_back( point);
-//				printf("used %lu of %lu   x= %f, y= %f, z= %f",pc.size(),pc.capacity(),point.normal.x,point.normal.y,point.normal.z);
 			}
+			// store surfel
+			point.faceId = faceId;
+			pc.push_back( point);
+//			printf("used %lu of %lu   x= %f, y= %f, z= %f",pc.size(),pc.capacity(),point.normal.x,point.normal.y,point.normal.z);
 //			cout << endl;
 		}
 	}
@@ -2234,7 +2284,7 @@ float colorBleeding(Surfel* receiver, Surfel* emitter, float3 &receiverVector)
 			/ ( PI * dSquared + emitter->area);
 }
 
-CUTBoolean occlusion(int passes, vector<Surfel> &pc, Solid* s)
+CUTBoolean occlusion(int passes, vector<Surfel> &pc, Solid* s, float* accessibility)
 {
 	float sshadow, sshadow_total;
 	float3 recVec;
@@ -2249,8 +2299,8 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc, Solid* s)
 				pc[i].bentNormal = pc[i].normal;
 			for (unsigned int j=0; j < s->f.size(); j++)
 			{
-				if ( pc[i].faceId != (int)j ) // if surfel doesn't lay on current face
-				{
+				if ( (pc[i].faceId != (int)j) && (pc[i].faceId != -1) )
+				{ // if surfel lays on a face except the current face
 					if (k == 1)
 					{
 						sshadow = surfelShadow( s, &pc[i], &s->f[j], recVec);
@@ -2276,14 +2326,17 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc, Solid* s)
 			if (k == 1)
 			{
 				pc[i].accessibility = 1.f - sshadow_total;
+				accessibility[i] = pc.at(i).accessibility;
 			}
 			else if (k == 2)
 			{
 				pc[i].acc_2nd_pass = 1.f - sshadow_total;
+				accessibility[i] = pc.at(i).acc_2nd_pass;
 			}
 			else if (k == 3)
 			{
 				pc[i].acc_3rd_pass = 1.f - sshadow_total;
+				accessibility[i] = pc.at(i).acc_3rd_pass;
 			}
 			if (k == passes)
 			{

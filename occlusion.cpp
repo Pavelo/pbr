@@ -109,6 +109,7 @@ struct _Surfel {
 	float3 pos;
 	float3 normal;
 	float3 bentNormal;
+	int texelId;
 	int faceId;
 	float area;
 	float radius;         // radius of a circle with this surfel area (for displaying purpose)
@@ -1399,21 +1400,11 @@ float surfelArea(Vertex* v)
 	return area_sum * .3333333333f;
 }
 
-void ppp(vector<Surfel> &pc, Solid* s, float* accessibility)
+void ppp(vector<Surfel> &pc, float* accessibility)
 {
 	for (unsigned int i=0; i < pc.size(); i++)
 	{
-//			for (unsigned int j=0; j < s->f.size(); j++)
-//			{
-		if ( pc[i].faceId != -1 )
-		{ // if surfel lays on a face except the current face
-			accessibility[i] = 0.0;
-		}
-		else {
-			accessibility[i] = 1.0;
-		}
-		
-//			}
+		accessibility[ pc[i].texelId ] = 1.0;
 	}
 }
 
@@ -1529,6 +1520,9 @@ CUTBoolean preprocessing(int argc, char** argv)
 	}
 	dir = "/Developer/GPU Computing/C/src/occlusion/occlusionTextures/";
 	acc = (float*) malloc( surfelMapDim * surfelMapDim * sizeof(float));
+	for (int i=0; i < surfelMapDim * surfelMapDim; i++) {
+		acc[i] = 1.0;
+	}
 	
 	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "texture"))
 	{ // occlusion map is passed by argument
@@ -1563,7 +1557,7 @@ CUTBoolean preprocessing(int argc, char** argv)
 			cout << "Computing ambient occlusion... ";
 			cout.flush();
 			occlusion( multipass, pointCloud, h_imesh, acc);
-//			ppp( pointCloud, h_imesh, acc);
+//			ppp( pointCloud, acc);
 			cout << "done" << endl;
 			cout << "Saving to \"" << filename << "\"... ";
 			cout.flush();
@@ -1814,7 +1808,7 @@ CUTBoolean savePointCloud(vector<Surfel> &pc, const char* path)
 			file << pc[i].normal.x<<" "<<pc[i].normal.y<<" "<<pc[i].normal.z << endl;
 		}
 		for (unsigned int i=0; i < pc.size(); i++) {
-			file << pc[i].faceId << endl;
+			file << pc[i].texelId <<" "<< pc[i].faceId << endl;
 		}
 		
 	} else {
@@ -1909,11 +1903,13 @@ CUTBoolean createPointCloud(int mapResolution, vector<Surfel> &pc, Solid* s)
 				n1 = s->vn[ s->f[ faceId ].n.y-1 ];
 				n2 = s->vn[ s->f[ faceId ].n.z-1 ];
 				point.normal = normalizeVector( add( add( mul( alpha, n0), mul( beta, n1)), mul( gamma, n2)));
+
+				// store surfel
+				point.texelId = i * mapResolution + j;
+				point.faceId = faceId;
+				pc.push_back( point);
+//				printf("used %lu of %lu   x= %f, y= %f, z= %f",pc.size(),pc.capacity(),point.normal.x,point.normal.y,point.normal.z);
 			}
-			// store surfel
-			point.faceId = faceId;
-			pc.push_back( point);
-//			printf("used %lu of %lu   x= %f, y= %f, z= %f",pc.size(),pc.capacity(),point.normal.x,point.normal.y,point.normal.z);
 //			cout << endl;
 		}
 	}
@@ -2299,7 +2295,7 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc, Solid* s, float* accessibil
 				pc[i].bentNormal = pc[i].normal;
 			for (unsigned int j=0; j < s->f.size(); j++)
 			{
-				if ( (pc[i].faceId != (int)j) && (pc[i].faceId != -1) )
+				if ( pc[i].faceId != (int)j )
 				{ // if surfel lays on a face except the current face
 					if (k == 1)
 					{
@@ -2326,17 +2322,17 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc, Solid* s, float* accessibil
 			if (k == 1)
 			{
 				pc[i].accessibility = 1.f - sshadow_total;
-				accessibility[i] = pc.at(i).accessibility;
+				accessibility[ pc[i].texelId ] = pc.at(i).accessibility;
 			}
 			else if (k == 2)
 			{
 				pc[i].acc_2nd_pass = 1.f - sshadow_total;
-				accessibility[i] = pc.at(i).acc_2nd_pass;
+				accessibility[ pc[i].texelId ] = pc.at(i).acc_2nd_pass;
 			}
 			else if (k == 3)
 			{
 				pc[i].acc_3rd_pass = 1.f - sshadow_total;
-				accessibility[i] = pc.at(i).acc_3rd_pass;
+				accessibility[ pc[i].texelId ] = pc.at(i).acc_3rd_pass;
 			}
 			if (k == passes)
 			{
@@ -2427,7 +2423,7 @@ CUTBoolean loadPointCloud(const char* path, vector<Surfel> &pc)
 		for (unsigned int i=0; i < n_surfels; i++) {
 			getline(file, s_line);
 			line = s_line.c_str();
-			sscanf( line, "%d", &pc[i].faceId);
+			sscanf( line, "%d %d", &pc[i].texelId, &pc[i].faceId);
 		}
 	} else {
 		return CUTFalse;

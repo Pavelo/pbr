@@ -190,6 +190,8 @@ CUTBoolean loadPointCloud( const char* path, vector<Surfel> &pc);
 float2 texelCentre( int dx, int dy, float du);
 bool pointInTriangle( float2 p, float2 t0, float2 t1, float2 t2, float &beta, float &gamma);
 float4 rasterizeCoordinates( int faceId, float2 texelUV, float2 t0, float2 t1, float2 t2, float4 itself);
+float4 rasterizeBorders( int faceId, float2 texelUV, vector<float2> &vt, vector<Face> &f);
+void dilatePatchesBorders( int dim, float2** texelUV, float4** original, float4** dilated, vector<Face> &faces, vector<float2> &vts);
 CUTBoolean occlusion( int passes, vector<Surfel> &pc, Solid* s, float* accessibility);
 float formFactor_pA( Surfel* receiver, Face* emitterF);
 float surfelShadow( Solid* s, Surfel* receiver, Face* emitter, float3 &receiverVector);
@@ -1519,6 +1521,7 @@ CUTBoolean preprocessing(int argc, char** argv)
 		multipass = 1;
 	}
 	dir = "/Developer/GPU Computing/C/src/occlusion/occlusionTextures/";
+
 	acc = (float*) malloc( surfelMapDim * surfelMapDim * sizeof(float));
 	for (int i=0; i < surfelMapDim * surfelMapDim; i++) {
 		acc[i] = 1.0;
@@ -1587,7 +1590,6 @@ CUTBoolean preprocessing(int argc, char** argv)
 		}
 		ilConvertImage(IL_LUMINANCE, IL_FLOAT);
 	}
-
 
 	// calculate occlusion
 //	cout << "Computing occlusion... ";
@@ -1827,13 +1829,22 @@ CUTBoolean createPointCloud(int mapResolution, vector<Surfel> &pc, Solid* s)
 {
 	int faceId;
 	float alpha, beta, gamma;
-	float2 vt0, vt1, vt2;
-	float2 texelUV[mapResolution][mapResolution];
+	float2 vt0, vt1, vt2, **texelUV;
 	float3 v0, v1, v2, n0, n1, n2;
-	float4 barycentricCooAndId[mapResolution][mapResolution];
+	float4 **barycentricCooAndId, **dilatedBarycentricCooAndId;
 	float du = 1.0 / (float)mapResolution;
 	Surfel point;
-
+	// allocate mem for 2D arrays
+	texelUV = (float2**) malloc( mapResolution * sizeof(float2*));
+	barycentricCooAndId = (float4**) malloc( mapResolution * sizeof(float4*));
+	dilatedBarycentricCooAndId = (float4**) malloc( mapResolution * sizeof(float4*));
+	for (int i=0; i < mapResolution; i++)
+	{
+		texelUV[i] = (float2*) malloc( mapResolution * sizeof(float2));
+		barycentricCooAndId[i] = (float4*) malloc( mapResolution * sizeof(float4));
+		dilatedBarycentricCooAndId[i] = (float4*) malloc( mapResolution * sizeof(float4));
+	}
+	
 	// place a surfel in the centre of each texel and store its UVs;
 	// initialize the barycentric coordinates and face id array.
 	for (int i=0; i < mapResolution; i++)
@@ -1862,9 +1873,18 @@ CUTBoolean createPointCloud(int mapResolution, vector<Surfel> &pc, Solid* s)
 																  vt1,
 																  vt2,
 																  barycentricCooAndId[i][j]);
+				// initialize array
+//				dilatedBarycentricCooAndId[i][j] = barycentricCooAndId[i][j];
 			}
 		}
 	}
+
+	dilatePatchesBorders( mapResolution,
+						  texelUV,
+						  barycentricCooAndId,
+						  dilatedBarycentricCooAndId,
+						  s->f,
+						  s->vt);
 
 //	for (int i=0; i < mapResolution; i++)
 //	{
@@ -1913,8 +1933,57 @@ CUTBoolean createPointCloud(int mapResolution, vector<Surfel> &pc, Solid* s)
 //			cout << endl;
 		}
 	}
+	
+	// deallocate mem
+	for (int i=0; i < mapResolution; i++) {
+		free(texelUV[i]);
+		free(barycentricCooAndId[i]);
+		free(dilatedBarycentricCooAndId[i]);
+	}
+	free(texelUV);
+	free(barycentricCooAndId);
+	free(dilatedBarycentricCooAndId);
 
 	return CUTTrue;
+}
+
+void dilatePatchesBorders(int dim, float2** texelUV, float4** original, float4** dilated, vector<Face> &faces, vector<float2> &vts)
+{
+	int texelFaceId, nexti, nextj, previ, prevj;
+	
+	// first pass: border dilation along horizontal and vertical axis
+	texelFaceId = -1;
+	nexti = nextj = previ = prevj = 0;
+	for (int i=0; i < dim; i++)
+	{
+		nexti = (i+1) % dim;
+		previ = (i-1) % dim;
+		for (int j=0; j < dim; j++)
+		{
+			nextj = (j+1) % dim;
+			prevj = (j-1) % dim;
+			texelFaceId = original[i][j].w;
+			if ( texelFaceId != -1 )
+			{
+				if ( original[nexti][j].w == -1 )
+					dilated[nexti][j] = rasterizeBorders( texelFaceId, texelUV[nexti][j], vts, faces);
+				
+				if ( original[previ][j].w == -1 )
+					dilated[previ][j] = rasterizeBorders( texelFaceId, texelUV[previ][j], vts, faces);
+				
+				if ( original[i][nextj].w == -1 )
+					dilated[i][nextj] = rasterizeBorders( texelFaceId, texelUV[i][nextj], vts, faces);
+
+				if ( original[i][prevj].w == -1 )
+					dilated[i][prevj] = rasterizeBorders( texelFaceId, texelUV[i][prevj], vts, faces);
+			}
+			else
+			{
+				dilated[i][j].w = original[i][j].w;
+			}
+		}
+	}
+
 }
 
 bool pointInTriangle(float2 p, float2 t0, float2 t1, float2 t2, float &beta, float &gamma)
@@ -1956,6 +2025,19 @@ float4 rasterizeCoordinates(int faceId, float2 texelUV, float2 t0, float2 t1, fl
 	{
 		return itself;
 	}
+}
+
+float4 rasterizeBorders(int faceId, float2 texelUV, vector<float2> &vt, vector<Face> &f)
+{
+	float alpha, beta, gamma;
+	float2 vt0, vt1, vt2;
+	vt0 = vt[ f[faceId].t.x-1 ];
+	vt1 = vt[ f[faceId].t.y-1 ];
+	vt2 = vt[ f[faceId].t.z-1 ];
+	pointInTriangle( texelUV, vt0, vt1, vt2, beta, gamma);
+	alpha = 1 - beta - gamma;
+	
+	return make_float4( alpha, beta, gamma, faceId);
 }
 
 float2 texelCentre(int dx, int dy, float du)

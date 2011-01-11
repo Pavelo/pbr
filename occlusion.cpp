@@ -1905,12 +1905,12 @@ CUTBoolean createPointCloud(int mapResolution, vector<Surfel> &pc, Solid* s)
 		for (int j=0; j < mapResolution; j++)
 		{
 //			printf("%d, %d   ",i,j);
-			faceId = barycentricCooAndId[i][j].w;
+			faceId = dilatedBarycentricCooAndId[i][j].w;
 			if ( faceId != -1 )
 			{
-				alpha = barycentricCooAndId[i][j].x;
-				beta  = barycentricCooAndId[i][j].y;
-				gamma = barycentricCooAndId[i][j].z;
+				alpha = dilatedBarycentricCooAndId[i][j].x;
+				beta  = dilatedBarycentricCooAndId[i][j].y;
+				gamma = dilatedBarycentricCooAndId[i][j].z;
 
 				// interpolate surfel position ( alpha*A + beta*B + gamma*C )
 				v0 = s->v[ s->f[ faceId ].v.x-1 ].pos;
@@ -1951,17 +1951,22 @@ void dilatePatchesBorders(int dim, float2** texelUV, float4** original, float4**
 {
 	int texelFaceId, nexti, nextj, previ, prevj;
 	
+	// copy original data to dilated
+	for (int i=0; i < dim; i++)
+		for (int j=0; j < dim; j++)
+			dilated[i][j] = original[i][j];
+	
 	// first pass: border dilation along horizontal and vertical axis
 	texelFaceId = -1;
 	nexti = nextj = previ = prevj = 0;
 	for (int i=0; i < dim; i++)
 	{
 		nexti = (i+1) % dim;
-		previ = (i-1) % dim;
+		previ = (dim+i-1) % dim;
 		for (int j=0; j < dim; j++)
 		{
 			nextj = (j+1) % dim;
-			prevj = (j-1) % dim;
+			prevj = (dim+j-1) % dim;
 			texelFaceId = original[i][j].w;
 			if ( texelFaceId != -1 )
 			{
@@ -1976,10 +1981,6 @@ void dilatePatchesBorders(int dim, float2** texelUV, float4** original, float4**
 
 				if ( original[i][prevj].w == -1 )
 					dilated[i][prevj] = rasterizeBorders( texelFaceId, texelUV[i][prevj], vts, faces);
-			}
-			else
-			{
-				dilated[i][j].w = original[i][j].w;
 			}
 		}
 	}

@@ -1670,10 +1670,10 @@ void setAOTexture()
     glPixelStorei (GL_UNPACK_ALIGNMENT, 1);
     glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
     glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-//	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-//	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+//	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+//	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexEnvf (GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
 	glTexImage2D(GL_TEXTURE_2D,
 				 0,
@@ -1984,7 +1984,33 @@ void dilatePatchesBorders(int dim, float2** texelUV, float4** original, float4**
 			}
 		}
 	}
-
+	
+	// second pass: border dilation along sidelong axis
+	for (int i=0; i < dim; i++)
+	{
+		nexti = (i+1) % dim;
+		previ = (dim+i-1) % dim;
+		for (int j=0; j < dim; j++)
+		{
+			nextj = (j+1) % dim;
+			prevj = (dim+j-1) % dim;
+			texelFaceId = original[i][j].w;
+			if ( texelFaceId != -1 )
+			{
+				if ( dilated[nexti][nextj].w == -1 )
+					dilated[nexti][nextj] = rasterizeBorders( texelFaceId, texelUV[nexti][nextj], vts, faces);
+				
+				if ( dilated[nexti][prevj].w == -1 )
+					dilated[nexti][prevj] = rasterizeBorders( texelFaceId, texelUV[nexti][prevj], vts, faces);
+				
+				if ( dilated[previ][nextj].w == -1 )
+					dilated[previ][nextj] = rasterizeBorders( texelFaceId, texelUV[previ][nextj], vts, faces);
+				
+				if ( dilated[previ][prevj].w == -1 )
+					dilated[previ][prevj] = rasterizeBorders( texelFaceId, texelUV[previ][prevj], vts, faces);
+			}
+		}
+	}
 }
 
 bool pointInTriangle(float2 p, float2 t0, float2 t1, float2 t2, float &beta, float &gamma)

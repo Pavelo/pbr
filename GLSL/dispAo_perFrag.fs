@@ -1,17 +1,20 @@
+uniform sampler2D tex;
+
 varying vec3 normal, lightDir;
 varying vec4 diffuse, ambient;
-varying float accPerFrag;
 
 void main()
 {
-	float NdotL;
-	vec3 n;
-	vec4 color;
+	float intensity, af;
+	vec3 n, cf;
+	vec4 accessibility;
 
 	n = normalize(normal);
-	NdotL = max( dot( n, lightDir), 0.0);
+	intensity = max( dot( n, lightDir), 0.0);
+	accessibility = texture2D( tex, gl_TexCoord[0].st);
 
-	color = ambient * accPerFrag + diffuse * NdotL;
+	cf = accessibility.rgb * ambient.rgb + diffuse.rgb * intensity; // frag color
+	af = ambient.a + diffuse.a; // frag alpha
 
-	gl_FragColor = color;
+	gl_FragColor = vec4(cf, af);
 }

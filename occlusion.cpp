@@ -138,8 +138,6 @@ float light_rotate_x = 0.0, light_rotate_y = 0.0f;
 float light_orientation[] = {0.0, 0.2, 0.8, 0.0};
 bool altPressed = false;
 GLuint shaderSelected = 0, shaderID = 0;
-GLint loc0;
-bool ao_lastPass = true;
 int surfelMapDim;
 int counter = 0;
 
@@ -218,7 +216,6 @@ void displayOcclusionTriplePass( Solid* s, vector<Surfel> &pc);
 void displayBentNormal( Solid* model, vector<Surfel> &pc);
 void noiseTexture( float* texel, int dim);
 void checkersTexture( float* texel, int dim, float color0 = 0.0, float color1 = 1.0);
-void testAO( float* texel, int dim);
 
 // GLSL functionality
 char* textFileRead(char *fn);
@@ -688,12 +685,6 @@ void keyboard(unsigned char key, int /*x*/, int /*y*/)
 			shaderSelected = shaderSelected ? 0 : shaderID;
 			break;
 
-	// switch between one and two passes of ambient occlusion
-		case 'e':
-		case 'E':
-			ao_lastPass = !ao_lastPass;
-			break;
-			
 	// press space to reset camera view, or alt+space to reset lights position
 		case 32:
 			if ( glutGetModifiers() == GLUT_ACTIVE_ALT )
@@ -1041,20 +1032,14 @@ void drawSolid(Solid* model)
 	{
 		glNormal3f(model->vn[model->f[i].n.x-1].x, model->vn[model->f[i].n.x-1].y, model->vn[model->f[i].n.x-1].z);
 		glTexCoord2f(model->vt[model->f[i].t.x-1].x, model->vt[model->f[i].t.x-1].y);
-		if (ao_lastPass) glVertexAttrib1f( loc0, pointCloud[i].acc_3rd_pass);
-		else             glVertexAttrib1f( loc0, pointCloud[i].accessibility);
 		glVertex3f(model->v[model->f[i].v.x-1].pos.x, model->v[model->f[i].v.x-1].pos.y, model->v[model->f[i].v.x-1].pos.z);
 		
 		glNormal3f(model->vn[model->f[i].n.y-1].x, model->vn[model->f[i].n.y-1].y, model->vn[model->f[i].n.y-1].z);
 		glTexCoord2f(model->vt[model->f[i].t.y-1].x, model->vt[model->f[i].t.y-1].y);
-		if (ao_lastPass) glVertexAttrib1f( loc0, pointCloud[i].acc_3rd_pass);
-		else             glVertexAttrib1f( loc0, pointCloud[i].accessibility);
 		glVertex3f(model->v[model->f[i].v.y-1].pos.x, model->v[model->f[i].v.y-1].pos.y, model->v[model->f[i].v.y-1].pos.z);
 		
 		glNormal3f(model->vn[model->f[i].n.z-1].x, model->vn[model->f[i].n.z-1].y, model->vn[model->f[i].n.z-1].z);
 		glTexCoord2f(model->vt[model->f[i].t.z-1].x, model->vt[model->f[i].t.z-1].y);
-		if (ao_lastPass) glVertexAttrib1f( loc0, pointCloud[i].acc_3rd_pass);
-		else             glVertexAttrib1f( loc0, pointCloud[i].accessibility);
 		glVertex3f(model->v[model->f[i].v.z-1].pos.x, model->v[model->f[i].v.z-1].pos.y, model->v[model->f[i].v.z-1].pos.z);
 		
 //		if (counter == 1)
@@ -1083,16 +1068,10 @@ void displayBentNormal(Solid* model, vector<Surfel> &pc)
 	for (unsigned int i=0; i < model->f.size(); i++)
 	{
 		glNormal3f( pc[i].bentNormal.x, pc[i].bentNormal.y, pc[i].bentNormal.z);
-		if (ao_lastPass) glVertexAttrib1f( loc0, pointCloud[i].acc_3rd_pass);
-		else             glVertexAttrib1f( loc0, pointCloud[i].accessibility);
 		glVertex3f(model->v[model->f[i].v.x-1].pos.x, model->v[model->f[i].v.x-1].pos.y, model->v[model->f[i].v.x-1].pos.z);
 		
-		if (ao_lastPass) glVertexAttrib1f( loc0, pointCloud[i].acc_3rd_pass);
-		else             glVertexAttrib1f( loc0, pointCloud[i].accessibility);
 		glVertex3f(model->v[model->f[i].v.y-1].pos.x, model->v[model->f[i].v.y-1].pos.y, model->v[model->f[i].v.y-1].pos.z);
 		
-		if (ao_lastPass) glVertexAttrib1f( loc0, pointCloud[i].acc_3rd_pass);
-		else             glVertexAttrib1f( loc0, pointCloud[i].accessibility);
 		glVertex3f(model->v[model->f[i].v.z-1].pos.x, model->v[model->f[i].v.z-1].pos.y, model->v[model->f[i].v.z-1].pos.z);
 	}
 	glEnd();
@@ -1642,17 +1621,6 @@ void noiseTexture(float* texel, int dim)
 	}
 }
 
-void testAO(float* texel, int dim)
-{
-	for (int i=0; i < dim; i++)
-	{
-		for (int j=0; j < dim; j++)
-		{
-			texel[i*dim+j] = (float)(i*dim+j) / (float)(dim*dim);
-		}
-	}
-}
-
 void setAOTexture()
 {
 	GLuint tid;
@@ -1661,7 +1629,6 @@ void setAOTexture()
 //	float imgData[size * size];
 //	noiseTexture( imgData, size);
 //	checkersTexture( imgData, size, 0.2, 1.0);
-//	testAO( imgData, size);
 	
 	occImg = ilGetData();
 	
@@ -1674,7 +1641,7 @@ void setAOTexture()
 //	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexEnvf (GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glTexEnvf (GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
 	glTexImage2D(GL_TEXTURE_2D,
 				 0,
 				 GL_LUMINANCE,
@@ -2647,8 +2614,6 @@ GLuint setShaders(char* vertexShaderPath, char* fragmentShaderPath)
 	glLinkProgram(p);
 	glUseProgram(p);
 	
-	loc0 = glGetAttribLocation( p, "accessibility");
-		
 //	printShaderInfoLog(v);
 //	printShaderInfoLog(f);
 //	printProgramInfoLog(p);

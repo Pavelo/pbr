@@ -42,14 +42,18 @@ using namespace std;
 
 // definitions
 #define PI 3.14159265358979323846f
-#define POLY_CUBE  0
-#define POINTS     1
-#define NORMALS    2
-#define POLYS      3
-#define OCCLUSION  4
-#define OCC_DOUBLE 5
-#define OCC_TRIPLE 6
-#define BENT_NORM  7
+
+// enumerated types
+enum ViewMode
+{
+	POLY_CUBE     = 0,
+	POINTS        = 1,
+	NORMALS       = 2,
+	S_DIR_LIGHTS  = 3,
+	S_OCCLUSION   = 4,
+	S_OCC_AND_DIR = 5,
+	S_BENT_NORM   = 6
+};
 
 ////////////////////////////////////////////////////////////////////////////////
 // data structures
@@ -133,11 +137,11 @@ Solid* h_omesh;
 vector<Surfel> pointCloud;
 int slices;
 float theta;
-unsigned int view_model = POLYS;
+ViewMode view_model = S_DIR_LIGHTS;
 float light_rotate_x = 0.0, light_rotate_y = 0.0f;
 float light_orientation[] = {0.0, 0.2, 0.8, 0.0};
 bool altPressed = false;
-GLuint shaderSelected = 0, shaderID = 0;
+GLuint shaderSelected = 0, shaderID[8];
 int surfelMapDim;
 int counter = 0;
 
@@ -400,15 +404,26 @@ CUTBoolean initGL(int argc, char **argv)
 	setLighting();
 
 	// shading
-	char vs_path[] = "/Developer/GPU Computing/C/src/occlusion/GLSL/dispAO_perFrag.vs";
-	char fs_path[] = "/Developer/GPU Computing/C/src/occlusion/GLSL/dispAO_perFrag.fs";
-	shaderID = setShaders( vs_path, fs_path);
+	string vs_path = "/Developer/GPU Computing/C/src/occlusion/GLSL/occlusionAndDirectLights.vs";
+	string fs_path = "/Developer/GPU Computing/C/src/occlusion/GLSL/occlusionAndDirectLights.fs";
+	shaderID[0] = setShaders( (char*)vs_path.c_str(), (char*)fs_path.c_str());
 
+	vs_path = "/Developer/GPU Computing/C/src/occlusion/GLSL/";
+	fs_path = "/Developer/GPU Computing/C/src/occlusion/GLSL/";
+	shaderID[1] = setShaders( (char*)vs_path.c_str(), (char*)fs_path.c_str());
+	
+	vs_path = "/Developer/GPU Computing/C/src/occlusion/GLSL/occlusionAndDirectLights.vs";
+	fs_path = "/Developer/GPU Computing/C/src/occlusion/GLSL/occlusionAndDirectLights.fs";
+	shaderID[2] = setShaders( (char*)vs_path.c_str(), (char*)fs_path.c_str());
+	
+	vs_path = "/Developer/GPU Computing/C/src/occlusion/GLSL/occlusionAndDirectLights.vs";
+	fs_path = "/Developer/GPU Computing/C/src/occlusion/GLSL/occlusionAndDirectLights.fs";
+	shaderID[3] = setShaders( (char*)vs_path.c_str(), (char*)fs_path.c_str());
+	
+	shaderSelected = shaderID[0];
+	
 	// texturing
 	setAOTexture();
-//	ilutInit();
-//	ilutRenderer( ILUT_OPENGL);
-//	ilutGLBindTexImage();
 
     CUT_CHECK_ERROR_GL();
 
@@ -551,10 +566,6 @@ void display()
 	glUseProgram(shaderSelected);
 	
 	switch (view_model) {
-		case POLYS:
-			drawSolid(h_imesh);
-			break;
-
 		case POINTS:
 			drawPointCloud(pointCloud);
 			break;
@@ -563,24 +574,24 @@ void display()
 			drawFaceNormals(h_imesh);
 			break;
 
+		case S_DIR_LIGHTS:
+			drawSolid(h_imesh);
+			break;
+
+		case S_OCCLUSION:
+			drawSolid(h_imesh);
+			break;
+
+		case S_OCC_AND_DIR:
+			drawSolid(h_imesh);
+			break;
+
+		case S_BENT_NORM:
+			drawSolid(h_imesh);
+			break;
+
 		case POLY_CUBE:
 			drawCube(1.5f);
-			break;
-
-		case OCCLUSION:
-			displayOcclusion(h_imesh, pointCloud);
-			break;
-
-		case OCC_DOUBLE:
-			displayOcclusionDoublePass(h_imesh, pointCloud);
-			break;
-
-		case OCC_TRIPLE:
-			displayOcclusionTriplePass(h_imesh, pointCloud);
-			break;
-			
-		case BENT_NORM:
-			displayBentNormal(h_imesh, pointCloud);
 			break;
 
 		default:
@@ -625,48 +636,45 @@ void keyboard(unsigned char key, int /*x*/, int /*y*/)
 	// pretty useless polygonal cube
 		case '0':
 			view_model = POLY_CUBE;
+			shaderSelected = 0;
 			break;
 
 	// points/vertexes view
 		case '1':
 			view_model = POINTS;
+			shaderSelected = 0;
 			break;
 			
 	// surfel view
 		case '2':
 			view_model = NORMALS;
+			shaderSelected = 0;
 			break;
 			
-	// polygonal view, occlusion rendering
+	// polygonal view, direct lights rendering (shader)
 		case '3':
-			view_model = OCCLUSION;
+			view_model = S_DIR_LIGHTS;
+			shaderSelected = shaderID[0];
 			break;
 
-	// polygonal view, double pass occlusion
+	// polygonal view, occlusion rendering (shader)
 		case '4':
-			view_model = OCC_DOUBLE;
+			view_model = S_OCCLUSION;
+			shaderSelected = shaderID[1];
 			break;
 
-			// polygonal view, double pass occlusion
+	// polygonal view, ambient occlusion and direct lights rendering (shader)
 		case '5':
-			view_model = OCC_TRIPLE;
+			view_model = S_OCC_AND_DIR;
+			shaderSelected = shaderID[2];
 			break;
 			
-			// polygonal view
+	// polygonal view, ambient occlusion and direct lights using bent normals rendering (shader)
 		case '6':
-			view_model = POLYS;
+			view_model = S_BENT_NORM;
+			shaderSelected = shaderID[3];
 			break;
 
-	// polygonal view, bent normal rendering
-		case '7':
-			view_model = BENT_NORM;
-			break;
-
-	// polygonal view, occlusion and lights rendering
-//		case '5':
-//			view_model = GLOBAL;
-//			break;
-		
 	// rotate light
 		case 'l':
 		case 'L':
@@ -680,10 +688,10 @@ void keyboard(unsigned char key, int /*x*/, int /*y*/)
 			break;
 			
 	// use shaders
-		case 's':
-		case 'S':
-			shaderSelected = shaderSelected ? 0 : shaderID;
-			break;
+//		case 's':
+//		case 'S':
+//			shaderSelected = shaderSelected ? 0 : shaderID;
+//			break;
 
 	// press space to reset camera view, or alt+space to reset lights position
 		case 32:
@@ -2618,7 +2626,6 @@ GLuint setShaders(char* vertexShaderPath, char* fragmentShaderPath)
 	glAttachShader(p,f);
 	
 	glLinkProgram(p);
-	glUseProgram(p);
 	
 //	printShaderInfoLog(v);
 //	printShaderInfoLog(f);

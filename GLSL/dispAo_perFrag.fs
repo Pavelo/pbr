@@ -7,13 +7,13 @@ void main()
 {
 	float intensity, af;
 	vec3 n, cf;
-	vec4 accessibility;
+	float accessibility;
 
 	n = normalize(normal);
 	intensity = max( dot( n, lightDir), 0.0);
-	accessibility = texture2D( tex, gl_TexCoord[0].st);
+	accessibility = texture2D( tex, gl_TexCoord[0].st).a;
 
-	cf = accessibility.rgb * ambient.rgb + diffuse.rgb * intensity; // frag color
+	cf = accessibility * ambient.rgb + diffuse.rgb * intensity; // frag color
 	af = ambient.a + diffuse.a; // frag alpha
 
 	gl_FragColor = vec4(cf, af);

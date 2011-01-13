@@ -190,7 +190,7 @@ bool pointInTriangle( float2 p, float2 t0, float2 t1, float2 t2, float &beta, fl
 float4 rasterizeCoordinates( int faceId, float2 texelUV, float2 t0, float2 t1, float2 t2, float4 itself);
 float4 rasterizeBorders( int faceId, float2 texelUV, vector<float2> &vt, vector<Face> &f);
 void dilatePatchesBorders( int dim, float2** texelUV, float4** original, float4** dilated, vector<Face> &faces, vector<float2> &vts);
-CUTBoolean occlusion( int passes, vector<Surfel> &pc, Solid* s, float* accessibility);
+CUTBoolean occlusion( int passes, vector<Surfel> &pc, Solid* s, float* bentNormalAndAccessibility);
 float formFactor_pA( Surfel* receiver, Face* emitterF);
 float surfelShadow( Solid* s, Surfel* receiver, Face* emitter, float3 &receiverVector);
 float colorBleeding( Surfel* receiver, Surfel* emitter, float3 &receiverVector);
@@ -1501,9 +1501,12 @@ CUTBoolean preprocessing(int argc, char** argv)
 	}
 	dir = "/Developer/GPU Computing/C/src/occlusion/occlusionTextures/";
 
-	acc = (float*) malloc( surfelMapDim * surfelMapDim * sizeof(float));
+	acc = (float*) malloc( 4 * surfelMapDim * surfelMapDim * sizeof(float));
 	for (int i=0; i < surfelMapDim * surfelMapDim; i++) {
-		acc[i] = 1.0;
+		acc[i*4  ] = 0.0;
+		acc[i*4+1] = 0.0;
+		acc[i*4+2] = 0.0;
+		acc[i*4+3] = 1.0;
 	}
 	
 	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "texture"))
@@ -1550,8 +1553,8 @@ CUTBoolean preprocessing(int argc, char** argv)
 			ilTexImage (surfelMapDim, // width
 						surfelMapDim, // height
 						1,            // depth
-						1,            // Bpp
-						IL_LUMINANCE, // format
+						4,            // Bpp
+						IL_RGBA, // format
 						IL_FLOAT,     // type
 						acc);         // data
 			// turn image the right direction
@@ -1567,7 +1570,7 @@ CUTBoolean preprocessing(int argc, char** argv)
 		{ // occlusion map exists
 			cout << "Ambient occlusion map \"" << filename << "\" loaded correctly" << endl;
 		}
-		ilConvertImage(IL_LUMINANCE, IL_FLOAT);
+		ilConvertImage(IL_RGBA, IL_FLOAT);
 	}
 
 	// calculate occlusion
@@ -1644,11 +1647,11 @@ void setAOTexture()
     glTexEnvf (GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
 	glTexImage2D(GL_TEXTURE_2D,
 				 0,
-				 GL_LUMINANCE,
+				 GL_RGBA,
 				 ilGetInteger( IL_IMAGE_WIDTH),
 				 ilGetInteger( IL_IMAGE_HEIGHT),
 				 0,
-				 GL_LUMINANCE,
+				 GL_RGBA,
 				 GL_FLOAT,
 				 occImg);
 }
@@ -2356,7 +2359,7 @@ float colorBleeding(Surfel* receiver, Surfel* emitter, float3 &receiverVector)
 			/ ( PI * dSquared + emitter->area);
 }
 
-CUTBoolean occlusion(int passes, vector<Surfel> &pc, Solid* s, float* accessibility)
+CUTBoolean occlusion(int passes, vector<Surfel> &pc, Solid* s, float* bentNormalAndAccessibility)
 {
 	float sshadow, sshadow_total;
 	float3 recVec;
@@ -2395,24 +2398,27 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc, Solid* s, float* accessibil
 					}
 				}
 			}
+			if (k == passes)
+			{
+				pc[i].bentNormal = normalizeVector( pc[i].bentNormal);
+				bentNormalAndAccessibility[ pc[i].texelId * 4     ] = pc[i].bentNormal.x;
+				bentNormalAndAccessibility[ pc[i].texelId * 4 + 1 ] = pc[i].bentNormal.y;
+				bentNormalAndAccessibility[ pc[i].texelId * 4 + 2 ] = pc[i].bentNormal.z;
+			}
 			if (k == 1)
 			{
 				pc[i].accessibility = 1.f - sshadow_total;
-				accessibility[ pc[i].texelId ] = pc.at(i).accessibility;
+				bentNormalAndAccessibility[ pc[i].texelId * 4 + 3 ] = pc.at(i).accessibility;
 			}
 			else if (k == 2)
 			{
 				pc[i].acc_2nd_pass = 1.f - sshadow_total;
-				accessibility[ pc[i].texelId ] = pc.at(i).acc_2nd_pass;
+				bentNormalAndAccessibility[ pc[i].texelId * 4 + 3 ] = pc.at(i).acc_2nd_pass;
 			}
 			else if (k == 3)
 			{
 				pc[i].acc_3rd_pass = 1.f - sshadow_total;
-				accessibility[ pc[i].texelId ] = pc.at(i).acc_3rd_pass;
-			}
-			if (k == passes)
-			{
-				pc[i].bentNormal = normalizeVector( pc[i].bentNormal);
+				bentNormalAndAccessibility[ pc[i].texelId * 4 + 3 ] = pc.at(i).acc_3rd_pass;
 			}
 		}
 	}

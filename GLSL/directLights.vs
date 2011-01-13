@@ -10,6 +10,5 @@ void main()
 	ambient = gl_FrontMaterial.ambient * (gl_LightSource[0].ambient + gl_LightModel.ambient);
 	diffuse = gl_FrontMaterial.diffuse * gl_LightSource[0].diffuse;
 
-	gl_TexCoord[0] = gl_TextureMatrix[0] * gl_MultiTexCoord0;
 	gl_Position = ftransform();
 }

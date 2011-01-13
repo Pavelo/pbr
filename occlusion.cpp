@@ -404,20 +404,20 @@ CUTBoolean initGL(int argc, char **argv)
 	setLighting();
 
 	// shading
-	string vs_path = "/Developer/GPU Computing/C/src/occlusion/GLSL/occlusionAndDirectLights.vs";
-	string fs_path = "/Developer/GPU Computing/C/src/occlusion/GLSL/occlusionAndDirectLights.fs";
+	string vs_path = "/Developer/GPU Computing/C/src/occlusion/GLSL/directLights.vs";
+	string fs_path = "/Developer/GPU Computing/C/src/occlusion/GLSL/directLights.fs";
 	shaderID[0] = setShaders( (char*)vs_path.c_str(), (char*)fs_path.c_str());
 
-	vs_path = "/Developer/GPU Computing/C/src/occlusion/GLSL/";
-	fs_path = "/Developer/GPU Computing/C/src/occlusion/GLSL/";
+	vs_path = "/Developer/GPU Computing/C/src/occlusion/GLSL/occlusionOnly.vs";
+	fs_path = "/Developer/GPU Computing/C/src/occlusion/GLSL/occlusionOnly.fs";
 	shaderID[1] = setShaders( (char*)vs_path.c_str(), (char*)fs_path.c_str());
 	
 	vs_path = "/Developer/GPU Computing/C/src/occlusion/GLSL/occlusionAndDirectLights.vs";
 	fs_path = "/Developer/GPU Computing/C/src/occlusion/GLSL/occlusionAndDirectLights.fs";
 	shaderID[2] = setShaders( (char*)vs_path.c_str(), (char*)fs_path.c_str());
 	
-	vs_path = "/Developer/GPU Computing/C/src/occlusion/GLSL/occlusionAndDirectLights.vs";
-	fs_path = "/Developer/GPU Computing/C/src/occlusion/GLSL/occlusionAndDirectLights.fs";
+	vs_path = "/Developer/GPU Computing/C/src/occlusion/GLSL/occlusionAndBentNormals.vs";
+	fs_path = "/Developer/GPU Computing/C/src/occlusion/GLSL/occlusionAndBentNormals.fs";
 	shaderID[3] = setShaders( (char*)vs_path.c_str(), (char*)fs_path.c_str());
 	
 	shaderSelected = shaderID[0];

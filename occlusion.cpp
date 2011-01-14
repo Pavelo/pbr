@@ -1389,14 +1389,6 @@ float surfelArea(Vertex* v)
 	return area_sum * .3333333333f;
 }
 
-void ppp(vector<Surfel> &pc, float* accessibility)
-{
-	for (unsigned int i=0; i < pc.size(); i++)
-	{
-		accessibility[ pc[i].texelId ] = 1.0;
-	}
-}
-
 CUTBoolean preprocessing(int argc, char** argv)
 {
 	// load poly mesh
@@ -1550,7 +1542,6 @@ CUTBoolean preprocessing(int argc, char** argv)
 			cout << "Computing ambient occlusion... ";
 			cout.flush();
 			occlusion( multipass, pointCloud, h_imesh, acc);
-//			ppp( pointCloud, acc);
 			cout << "done" << endl;
 			cout << "Saving to \"" << filename << "\"... ";
 			cout.flush();
@@ -1562,7 +1553,7 @@ CUTBoolean preprocessing(int argc, char** argv)
 						surfelMapDim, // height
 						1,            // depth
 						4,            // Bpp
-						IL_RGBA, // format
+						IL_RGBA,      // format
 						IL_FLOAT,     // type
 						acc);         // data
 			// turn image the right direction
@@ -2409,9 +2400,10 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc, Solid* s, float* bentNormal
 			if (k == passes)
 			{
 				pc[i].bentNormal = normalizeVector( pc[i].bentNormal);
-				bentNormalAndAccessibility[ pc[i].texelId * 4     ] = pc[i].bentNormal.x;
-				bentNormalAndAccessibility[ pc[i].texelId * 4 + 1 ] = pc[i].bentNormal.y;
-				bentNormalAndAccessibility[ pc[i].texelId * 4 + 2 ] = pc[i].bentNormal.z;
+				// store normals in a range-compressed format to fit the texture color range format
+				bentNormalAndAccessibility[ pc[i].texelId * 4     ] = 0.5 * pc[i].bentNormal.x + 0.5;
+				bentNormalAndAccessibility[ pc[i].texelId * 4 + 1 ] = 0.5 * pc[i].bentNormal.y + 0.5;
+				bentNormalAndAccessibility[ pc[i].texelId * 4 + 2 ] = 0.5 * pc[i].bentNormal.z + 0.5;
 			}
 			if (k == 1)
 			{

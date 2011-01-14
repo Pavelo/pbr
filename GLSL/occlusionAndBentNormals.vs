@@ -1,4 +1,4 @@
-varying vec3 normal, lightDir;
+varying vec3 lightDir;
 varying vec4 ambient, diffuse;
 
 void main()
@@ -10,6 +10,5 @@ void main()
 	diffuse = gl_FrontMaterial.diffuse * gl_LightSource[0].diffuse;
 
 	gl_TexCoord[0] = gl_TextureMatrix[0] * gl_MultiTexCoord0;
-	normal = normalize( gl_NormalMatrix * gl_TexCoord[0].xyz);
 	gl_Position = ftransform();
 }

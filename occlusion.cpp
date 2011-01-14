@@ -2315,7 +2315,6 @@ float surfelShadow(Solid* s, Surfel* receiver, Face* emitter, float3 &receiverVe
 	float3 emitterVector, q0, q1, q2, q3;
 	
 	receiverVector = normalizeVector( getVector( receiver->pos, emitter->centroid));
-//	printf("     receiverVector ( %f, %f, %f )\n",receiverVector.x,receiverVector.y,receiverVector.z);
 	emitterVector = reverseVector( receiverVector);
 	
 	visibleQuad( receiver->pos,
@@ -2324,10 +2323,6 @@ float surfelShadow(Solid* s, Surfel* receiver, Face* emitter, float3 &receiverVe
 				 s->v[ emitter->v.y-1 ].pos,
 				 s->v[ emitter->v.z-1 ].pos,
 				 q0, q1, q2, q3);
-
-//	return (1 - 1 / sqrt( (emitter->area / PI) / dSquared + 1))
-//			* clamp( dot( emitter->normal, emitterVector))
-//			* clamp( 3 * dot( receiver->normal, receiverVector));
 
 	if ( dot( emitter->normal, emitterVector) >= 0.0 )
 	{

@@ -142,7 +142,6 @@ float light_rotate_x = 0.0, light_rotate_y = 0.0f;
 float light_orientation[] = {0.0, 0.2, 0.8, 0.0};
 bool altPressed = false;
 GLuint shaderSelected = 0, shaderID[8];
-int surfelMapDim;
 int counter = 0;
 
 // mouse controls
@@ -187,8 +186,8 @@ void cleanup();
 void setLighting();
 void setAOTexture();
 CUTBoolean createPointCloud( int mapResolution, vector<Surfel> &pc, Solid* s);
-CUTBoolean savePointCloud( vector<Surfel> &pc, const char* path);
-CUTBoolean loadPointCloud( const char* path, vector<Surfel> &pc);
+CUTBoolean savePointCloud( vector<Surfel> &pc, const char* path, int mapDim);
+CUTBoolean loadPointCloud( const char* path, vector<Surfel> &pc, int &mapDim);
 float2 texelCentre( int dx, int dy, float du);
 bool pointInTriangle( float2 p, float2 t0, float2 t1, float2 t2, float &beta, float &gamma);
 float4 rasterizeCoordinates( int faceId, float2 texelUV, float2 t0, float2 t1, float2 t2, float4 itself);
@@ -1391,6 +1390,8 @@ float surfelArea(Vertex* v)
 
 CUTBoolean preprocessing(int argc, char** argv)
 {
+	int surfelMapDim;
+
 	// load poly mesh
 	string dir, filename, path, msg;
 	char** cfilename;
@@ -1405,7 +1406,7 @@ CUTBoolean preprocessing(int argc, char** argv)
 	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "mesh")) {
 		cutGetCmdLineArgumentstr( argc, (const char**)argv, "mesh", cfilename);
 	} else {
-		cerr << "Please, specify a valid OBJ filename passed as command-line argument!\nSYNTAX:\n--mesh=filename.obj" << endl;
+		cerr << "Please, specify a valid OBJ filename passed as command-line argument!\nEXAMPLE:\n--mesh=filename.obj" << endl;
 		return CUTFalse;
 	}
 	filename = *cfilename;
@@ -1447,7 +1448,7 @@ CUTBoolean preprocessing(int argc, char** argv)
 		filename = *cfilename;
 		path = dir + filename;
 
-		if ( !loadPointCloud(path.c_str(), pointCloud))
+		if ( !loadPointCloud(path.c_str(), pointCloud, surfelMapDim))
 		{ // point cloud doesn't exist
 			do {
 				cout << "File \"" << filename << "\" does not exist! Create it? ";
@@ -1457,7 +1458,7 @@ CUTBoolean preprocessing(int argc, char** argv)
 					cout << "Creating surfels cloud..." << endl;
 					createPointCloud( surfelMapDim, pointCloud, h_imesh);
 					cout << "Saving to \"" << filename << "\"..." << endl;
-					savePointCloud( pointCloud, path.c_str());
+					savePointCloud( pointCloud, path.c_str(), surfelMapDim);
 				} else if (msg[0] == 'n' || msg[0] == 'N') {
 					cerr << "Cannot load any surfel cloud. Aborting..." << endl;
 					return CUTFalse;
@@ -1476,12 +1477,12 @@ CUTBoolean preprocessing(int argc, char** argv)
 		filename.replace( filename.length()-4, filename.length(), ".sfc" );
 		path = dir + filename;
 		
-		if ( !loadPointCloud( path.c_str(), pointCloud))
+		if ( !loadPointCloud( path.c_str(), pointCloud, surfelMapDim))
 		{ // point cloud doesn't exist
 			cout << "Creating surfels cloud... " << endl;
 			createPointCloud( surfelMapDim, pointCloud, h_imesh);
 			cout << "Saving to \"" << filename << "\"..." << endl;
-			savePointCloud( pointCloud, path.c_str());
+			savePointCloud( pointCloud, path.c_str(), surfelMapDim);
 		}
 		else
 		{ // point cloud exists
@@ -1514,18 +1515,6 @@ CUTBoolean preprocessing(int argc, char** argv)
 		cutGetCmdLineArgumentstr( argc, (const char**)argv, "texture", cfilename);
 		filename = *cfilename;
 		path = dir + filename;
-		
-		ilGenImages( 1, &imgId);
-		ilBindImage( imgId);
-		if ( !ilLoadImage( path.c_str()) )
-		{ // occlusion map doesn't exist
-			handleDevILErrors();
-		}
-		else
-		{ // occlusion map exists
-			cout << "Ambient occlusion map \"" << filename << "\" loaded correctly" << endl;
-		}
-		ilConvertImage(IL_LUMINANCE, IL_FLOAT);
 	}
 	else
 	{ // default occlusion map
@@ -1533,50 +1522,41 @@ CUTBoolean preprocessing(int argc, char** argv)
 		filename = *cfilename;
 		filename.replace( filename.length()-4, filename.length(), ".tga" );
 		path = dir + filename;
-
-		ilGenImages( 1, &imgId);
-		ilBindImage( imgId);
-		if ( !ilLoadImage( path.c_str()) )
-		{ // occlusion map doesn't exist
-			handleDevILErrors();
-			cout << "Computing ambient occlusion... ";
-			cout.flush();
-			occlusion( multipass, pointCloud, h_imesh, acc);
-			cout << "done" << endl;
-			cout << "Saving to \"" << filename << "\"... ";
-			cout.flush();
-//			unsigned char accu[surfelMapDim*surfelMapDim];
-//			for (int i=0; i<surfelMapDim*surfelMapDim; i++) {
-//				accu[i] = (unsigned char)(acc[i]*255);
-//			}
-			ilTexImage (surfelMapDim, // width
-						surfelMapDim, // height
-						1,            // depth
-						4,            // Bpp
-						IL_RGBA,      // format
-						IL_FLOAT,     // type
-						acc);         // data
-			// turn image the right direction
-			iluRotate(90);
-			iluMirror();
-			
-			ilEnable(IL_FILE_OVERWRITE);
-			ilSave( IL_TGA, path.c_str());
-			handleDevILErrors();
-			cout << "done" << endl;
-		}
-		else
-		{ // occlusion map exists
-			cout << "Ambient occlusion map \"" << filename << "\" loaded correctly" << endl;
-		}
-		ilConvertImage(IL_RGBA, IL_FLOAT);
 	}
 
-	// calculate occlusion
-//	cout << "Computing occlusion... ";
-//	cout.flush();
-//	occlusion( multipass, pointCloud, h_imesh);
-//	cout << pointCloud.size() << endl;
+	ilGenImages( 1, &imgId);
+	ilBindImage( imgId);
+	if ( !ilLoadImage( path.c_str()) )
+	{ // occlusion map doesn't exist
+		handleDevILErrors();
+		cout << "Computing ambient occlusion... ";
+		cout.flush();
+		occlusion( multipass, pointCloud, h_imesh, acc);
+		cout << "done" << endl;
+		cout << "Saving to \"" << filename << "\"... ";
+		cout.flush();
+		
+		ilTexImage (surfelMapDim, // width
+					surfelMapDim, // height
+					1,            // depth
+					4,            // Bpp
+					IL_RGBA,      // format
+					IL_FLOAT,     // type
+					acc);         // data
+		// turn image the right direction
+		iluRotate(90);
+		iluMirror();
+		
+		ilEnable(IL_FILE_OVERWRITE);
+		ilSave( IL_TGA, path.c_str());
+		handleDevILErrors();
+		cout << "done" << endl;
+	}
+	else
+	{ // occlusion map exists
+		cout << "Ambient occlusion map \"" << filename << "\" loaded correctly" << endl;
+	}
+	ilConvertImage(IL_RGBA, IL_FLOAT);
 
 	free(cfilename);
 	free(acc);
@@ -1633,7 +1613,6 @@ void setAOTexture()
 //	checkersTexture( imgData, size, 0.2, 1.0);
 	
 	occImg = ilGetData();
-	
 	glGenTextures (1, &tid);
 	glBindTexture (GL_TEXTURE_2D, tid);
     glPixelStorei (GL_UNPACK_ALIGNMENT, 1);
@@ -1760,7 +1739,7 @@ float3 reverseVector(float3 v)
 	return make_float3( -v.x, -v.y, -v.z);
 }
 
-CUTBoolean savePointCloud(vector<Surfel> &pc, const char* path)
+CUTBoolean savePointCloud(vector<Surfel> &pc, const char* path, int mapDim)
 {
 	ofstream file;
 	string line;
@@ -1772,6 +1751,7 @@ CUTBoolean savePointCloud(vector<Surfel> &pc, const char* path)
 		
 		file << "SFC" << endl;
 		file << pc.size() << endl;
+		file << mapDim << endl;
 		for (unsigned int i=0; i < pc.size(); i++) {
 			file << pc[i].pos.x<<" "<<pc[i].pos.y<<" "<<pc[i].pos.z << endl;
 		}
@@ -2463,7 +2443,7 @@ void displayOcclusionTriplePass(Solid* s, vector<Surfel> &pc)
 	glEnd();
 }
 
-CUTBoolean loadPointCloud(const char* path, vector<Surfel> &pc)
+CUTBoolean loadPointCloud(const char* path, vector<Surfel> &pc, int &mapDim)
 {
 	string s_line;
 	const char* line;
@@ -2478,6 +2458,8 @@ CUTBoolean loadPointCloud(const char* path, vector<Surfel> &pc)
 		{
 			getline(file, s_line);
 			n_surfels = atoi(s_line.c_str());
+			getline(file, s_line);
+			mapDim = atoi(s_line.c_str());
 		}
 		else {
 			cerr << "Wrong file type!" << endl;

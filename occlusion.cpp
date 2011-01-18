@@ -2335,8 +2335,13 @@ float colorBleeding(Surfel* receiver, Surfel* emitter, float3 &receiverVector)
 
 CUTBoolean occlusion(int passes, vector<Surfel> &pc, Solid* s, float* bentNormalAndAccessibility)
 {
-	float sshadow, sshadow_total;
+	float sshadow, sshadow_total, **ss_global;
 	float3 recVec;
+	
+	ss_global = (float**) malloc( pc.size() * sizeof(float*));
+	for (unsigned int i=0; i < pc.size(); i++) {
+		ss_global[i] = (float*) malloc( s->f.size() * sizeof(float));
+	}
 
 	sshadow = 0.0f;
 	for (int k=1; k <= passes; k++)
@@ -2354,6 +2359,7 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc, Solid* s, float* bentNormal
 					{
 						sshadow = surfelShadow( s, &pc[i], &s->f[j], recVec);
 						sshadow_total += sshadow;
+						ss_global[i][j] = sshadow;
 					}
 					else if (k == 2)
 					{
@@ -2365,20 +2371,7 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc, Solid* s, float* bentNormal
 						sshadow = surfelShadow( s, &pc[i], &s->f[j], recVec) * pc[j].acc_2nd_pass;
 						sshadow_total += sshadow;
 					}
-					if (k == passes)
-					{
-						pc[i].bentNormal = sub( pc[i].bentNormal, mul( sshadow, recVec));
-						//					printf("%4i recVec         ( %f, %f, %f )\n",i,recVec.x,recVec.y,recVec.z);
-					}
 				}
-			}
-			if (k == passes)
-			{
-				pc[i].bentNormal = normalizeVector( pc[i].bentNormal);
-				// store normals in a range-compressed format to fit the texture color range format
-				bentNormalAndAccessibility[ pc[i].texelId * 4     ] = 0.5 * pc[i].bentNormal.x + 0.5;
-				bentNormalAndAccessibility[ pc[i].texelId * 4 + 1 ] = 0.5 * pc[i].bentNormal.y + 0.5;
-				bentNormalAndAccessibility[ pc[i].texelId * 4 + 2 ] = 0.5 * pc[i].bentNormal.z + 0.5;
 			}
 			if (k == 1)
 			{
@@ -2397,6 +2390,25 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc, Solid* s, float* bentNormal
 			}
 		}
 	}
+	
+	for (unsigned int i=0; i < pc.size(); i++)
+	{
+		for (unsigned int j=0; j < pc.size(); j++)
+		{
+			recVec = normalizeVector( getVector( pc[i].pos, pc[j].pos));
+			pc[i].bentNormal = sub( pc[i].bentNormal, mul( ss_global[i][ pc[j].faceId ], recVec));
+		}
+		pc[i].bentNormal = normalizeVector( pc[i].bentNormal);
+		// store normals in a range-compressed format to fit the texture color range format
+		bentNormalAndAccessibility[ pc[i].texelId * 4     ] = 0.5 * pc[i].bentNormal.x + 0.5;
+		bentNormalAndAccessibility[ pc[i].texelId * 4 + 1 ] = 0.5 * pc[i].bentNormal.y + 0.5;
+		bentNormalAndAccessibility[ pc[i].texelId * 4 + 2 ] = 0.5 * pc[i].bentNormal.z + 0.5;
+	}
+	
+	for (unsigned int i=0; i < pc.size(); i++) {
+		free(ss_global[i]);
+	}
+	free(ss_global);
 
 	return CUTTrue;
 }

@@ -1,0 +1,32 @@
+An SFC file stores data about a surfels cloud generated starting from a polygonal mesh. It is organized as follows.
+Beginning from the first line of an SFC file there are:
+- extension of the file
+- integer number representing the total number of surfels
+- integer number representing the size of the texture map
+- tridimensional coordinates of each surfel
+- tridimensional coordinates of each surfel normal
+- wich texel the surfel is mapped on, wich face the surfel belongs to
+- line feed
+
+Note the surfels data is NOT interlaced.
+
+(non working) example:
+
+SFC
+2210
+512
+-0.208358 -0.443196 0.153572
+.
+.
+.
+-0.239007 -0.495428 0.120782
+-0.821687 0.297672 0.486027
+.
+.
+.
+-0.971832 -0.235675 0
+35 3
+.
+.
+.
+3462 48

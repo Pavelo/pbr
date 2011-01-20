@@ -52,7 +52,6 @@ enum ViewMode
 	S_DIR_LIGHTS  = 3,
 	S_OCCLUSION   = 4,
 	S_OCC_AND_DIR = 5,
-	S_BENT_NORM   = 6
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -97,7 +96,6 @@ struct _Solid
 struct _Surfel {
 	float3 pos;
 	float3 normal;
-	float3 bentNormal;
 	int texelId;
 	int faceId;
 	float area;
@@ -167,10 +165,9 @@ bool pointInTriangle( float2 p, float2 t0, float2 t1, float2 t2, float &beta, fl
 float4 rasterizeCoordinates( int faceId, float2 texelUV, float2 t0, float2 t1, float2 t2, float4 itself);
 float4 rasterizeBorders( int faceId, float2 texelUV, vector<float2> &vt, vector<Face> &f);
 void dilatePatchesBorders( int dim, float2** texelUV, float4** original, float4** dilated, vector<Face> &faces, vector<float2> &vts);
-CUTBoolean occlusion( int passes, vector<Surfel> &pc, Solid* s, float* bentNormalAndAccessibility);
+CUTBoolean occlusion( int passes, vector<Surfel> &pc, Solid* s, float* accessibility);
 float formFactor_pA( Surfel* receiver, Face* emitterF);
-float surfelShadow( Solid* s, Surfel* receiver, Face* emitter, float3 &receiverVector);
-float colorBleeding( Surfel* receiver, Surfel* emitter, float3 &receiverVector);
+float surfelShadow( Solid* s, Surfel* receiver, Face* emitter);
 
 // IL functionality
 bool initIL();
@@ -370,21 +367,17 @@ CUTBoolean initGL(int argc, char **argv)
 	setLighting();
 
 	// shading
-	string vs_path = "/Developer/GPU Computing/C/src/occlusion/GLSL/directLights.vs";
-	string fs_path = "/Developer/GPU Computing/C/src/occlusion/GLSL/directLights.fs";
+	string vs_path = "/Developer/GPU Computing/C/src/occlusion/shaders/directLights.vs";
+	string fs_path = "/Developer/GPU Computing/C/src/occlusion/shaders/directLights.fs";
 	shaderID[0] = setShaders( (char*)vs_path.c_str(), (char*)fs_path.c_str());
 
-	vs_path = "/Developer/GPU Computing/C/src/occlusion/GLSL/occlusionOnly.vs";
-	fs_path = "/Developer/GPU Computing/C/src/occlusion/GLSL/occlusionOnly.fs";
+	vs_path = "/Developer/GPU Computing/C/src/occlusion/shaders/occlusionOnly.vs";
+	fs_path = "/Developer/GPU Computing/C/src/occlusion/shaders/occlusionOnly.fs";
 	shaderID[1] = setShaders( (char*)vs_path.c_str(), (char*)fs_path.c_str());
 	
-	vs_path = "/Developer/GPU Computing/C/src/occlusion/GLSL/occlusionAndDirectLights.vs";
-	fs_path = "/Developer/GPU Computing/C/src/occlusion/GLSL/occlusionAndDirectLights.fs";
+	vs_path = "/Developer/GPU Computing/C/src/occlusion/shaders/occlusionAndDirectLights.vs";
+	fs_path = "/Developer/GPU Computing/C/src/occlusion/shaders/occlusionAndDirectLights.fs";
 	shaderID[2] = setShaders( (char*)vs_path.c_str(), (char*)fs_path.c_str());
-	
-	vs_path = "/Developer/GPU Computing/C/src/occlusion/GLSL/occlusionAndBentNormals.vs";
-	fs_path = "/Developer/GPU Computing/C/src/occlusion/GLSL/occlusionAndBentNormals.fs";
-	shaderID[3] = setShaders( (char*)vs_path.c_str(), (char*)fs_path.c_str());
 	
 	shaderSelected = shaderID[0];
 	
@@ -541,18 +534,8 @@ void display()
 			break;
 
 		case S_DIR_LIGHTS:
-			drawSolid(h_imesh);
-			break;
-
 		case S_OCCLUSION:
-			drawSolid(h_imesh);
-			break;
-
 		case S_OCC_AND_DIR:
-			drawSolid(h_imesh);
-			break;
-
-		case S_BENT_NORM:
 			drawSolid(h_imesh);
 			break;
 
@@ -635,12 +618,6 @@ void keyboard(unsigned char key, int /*x*/, int /*y*/)
 			shaderSelected = shaderID[2];
 			break;
 			
-	// polygonal view, ambient occlusion and direct lights using bent normals rendering (shader)
-		case '6':
-			view_model = S_BENT_NORM;
-			shaderSelected = shaderID[3];
-			break;
-
 	// rotate light
 		case 'l':
 		case 'L':
@@ -1235,12 +1212,9 @@ CUTBoolean preprocessing(int argc, char** argv)
 	}
 	dir = "/Developer/GPU Computing/C/src/occlusion/occlusionTextures/";
 
-	acc = (float*) malloc( 4 * surfelMapDim * surfelMapDim * sizeof(float));
+	acc = (float*) malloc( surfelMapDim * surfelMapDim * sizeof(float));
 	for (int i=0; i < surfelMapDim * surfelMapDim; i++) {
-		acc[i*4  ] = 0.0;
-		acc[i*4+1] = 0.0;
-		acc[i*4+2] = 0.0;
-		acc[i*4+3] = 1.0;
+		acc[i] = 1.0;
 	}
 	
 	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "texture"))
@@ -1272,8 +1246,8 @@ CUTBoolean preprocessing(int argc, char** argv)
 		ilTexImage (surfelMapDim, // width
 					surfelMapDim, // height
 					1,            // depth
-					4,            // Bpp
-					IL_RGBA,      // format
+					1,            // Bpp
+					IL_LUMINANCE, // format
 					IL_FLOAT,     // type
 					acc);         // data
 		// turn image the right direction
@@ -1289,7 +1263,7 @@ CUTBoolean preprocessing(int argc, char** argv)
 	{ // occlusion map exists
 		cout << "Ambient occlusion map \"" << filename << "\" loaded correctly" << endl;
 	}
-	ilConvertImage(IL_RGBA, IL_FLOAT);
+	ilConvertImage(IL_LUMINANCE, IL_FLOAT);
 
 	free(cfilename);
 	free(acc);
@@ -1344,25 +1318,25 @@ void setAOTexture()
 //	float imgData[size * size];
 //	noiseTexture( imgData, size);
 //	checkersTexture( imgData, size, 0.2, 1.0);
-	
+
 	occImg = ilGetData();
 	glGenTextures (1, &tid);
 	glBindTexture (GL_TEXTURE_2D, tid);
-    glPixelStorei (GL_UNPACK_ALIGNMENT, 1);
-    glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
-    glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+	glPixelStorei (GL_UNPACK_ALIGNMENT, 1);
+	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
 //	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 //	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexEnvf (GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+	glTexEnvf (GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
 	glTexImage2D(GL_TEXTURE_2D,
 				 0,
-				 GL_RGBA,
+				 GL_LUMINANCE,
 				 ilGetInteger( IL_IMAGE_WIDTH),
 				 ilGetInteger( IL_IMAGE_HEIGHT),
 				 0,
-				 GL_RGBA,
+				 GL_LUMINANCE,
 				 GL_FLOAT,
 				 occImg);
 }
@@ -1481,6 +1455,7 @@ CUTBoolean createPointCloud(int mapResolution, vector<Surfel> &pc, Solid* s)
 	float4 **barycentricCooAndId, **dilatedBarycentricCooAndId;
 	float du = 1.0 / (float)mapResolution;
 	Surfel point;
+
 	// allocate mem for 2D arrays
 	texelUV = (float2**) malloc( mapResolution * sizeof(float2*));
 	barycentricCooAndId = (float4**) malloc( mapResolution * sizeof(float4*));
@@ -1520,8 +1495,6 @@ CUTBoolean createPointCloud(int mapResolution, vector<Surfel> &pc, Solid* s)
 																  vt1,
 																  vt2,
 																  barycentricCooAndId[i][j]);
-				// initialize array
-//				dilatedBarycentricCooAndId[i][j] = barycentricCooAndId[i][j];
 			}
 		}
 	}
@@ -1533,25 +1506,10 @@ CUTBoolean createPointCloud(int mapResolution, vector<Surfel> &pc, Solid* s)
 						  s->f,
 						  s->vt);
 
-//	for (int i=0; i < mapResolution; i++)
-//	{
-//		for (int j=0; j < mapResolution; j++)
-//		{
-//				printf("( %2d , %2d ) a= %.6f b= %.6f c= %.6f id= %d\n",
-//					   i,
-//					   j,
-//					   barycentricCooAndId[i][j].x,
-//					   barycentricCooAndId[i][j].y,
-//					   barycentricCooAndId[i][j].z,
-//					   (int)barycentricCooAndId[i][j].w);
-//		}
-//	}
-//	cout << endl;
 	for (int i=0; i < mapResolution; i++)
 	{
 		for (int j=0; j < mapResolution; j++)
 		{
-//			printf("%d, %d   ",i,j);
 			faceId = dilatedBarycentricCooAndId[i][j].w;
 			if ( faceId != -1 )
 			{
@@ -1575,9 +1533,7 @@ CUTBoolean createPointCloud(int mapResolution, vector<Surfel> &pc, Solid* s)
 				point.texelId = i * mapResolution + j;
 				point.faceId = faceId;
 				pc.push_back( point);
-//				printf("used %lu of %lu   x= %f, y= %f, z= %f",pc.size(),pc.capacity(),point.normal.x,point.normal.y,point.normal.z);
 			}
-//			cout << endl;
 		}
 	}
 	
@@ -1988,12 +1944,11 @@ float formFactor_pA(Surfel* receiver, float3 q0, float3 q1, float3 q2, float3 q3
 	return fpa;
 }
 
-float surfelShadow(Solid* s, Surfel* receiver, Face* emitter, float3 &receiverVector)
+float surfelShadow(Solid* s, Surfel* receiver, Face* emitter)
 {
 	float3 emitterVector, q0, q1, q2, q3;
 	
-	receiverVector = normalizeVector( getVector( receiver->pos, emitter->centroid));
-	emitterVector = reverseVector( receiverVector);
+	emitterVector = normalizeVector( getVector( emitter->centroid, receiver->pos));
 	
 	visibleQuad( receiver->pos,
 				 receiver->normal,
@@ -2012,29 +1967,9 @@ float surfelShadow(Solid* s, Surfel* receiver, Face* emitter, float3 &receiverVe
 	}
 }
 
-float colorBleeding(Surfel* receiver, Surfel* emitter, float3 &receiverVector)
-{
-	float distance, dSquared;
-	float3 v, emitterVector;
-
-	if (receiver == emitter) {
-		return 0.0;
-	}
-
-	v = getVector( emitter->pos, receiver->pos);
-	distance = norm( v);
-	dSquared = distance * distance;
-	emitterVector = normalizeVector( v);
-	receiverVector = reverseVector( emitterVector);
-
-	return emitter->area * clamp( dot( emitter->normal, emitterVector)) * clamp( dot( receiver->normal, receiverVector))
-			/ ( PI * dSquared + emitter->area);
-}
-
-CUTBoolean occlusion(int passes, vector<Surfel> &pc, Solid* s, float* bentNormalAndAccessibility)
+CUTBoolean occlusion(int passes, vector<Surfel> &pc, Solid* s, float* accessibility)
 {
 	float sshadow, sshadow_total;
-	float3 recVec;
 
 	sshadow = 0.0f;
 	for (int k=1; k <= passes; k++)
@@ -2042,55 +1977,41 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc, Solid* s, float* bentNormal
 		for (unsigned int i=0; i < pc.size(); i++)
 		{
 			sshadow_total = .0f;
-			if (k == passes)
-				pc[i].bentNormal = pc[i].normal;
 			for (unsigned int j=0; j < s->f.size(); j++)
 			{
 				if ( pc[i].faceId != (int)j )
 				{ // if surfel lays on a face except the current face
 					if (k == 1)
 					{
-						sshadow = surfelShadow( s, &pc[i], &s->f[j], recVec);
+						sshadow = surfelShadow( s, &pc[i], &s->f[j]);
 						sshadow_total += sshadow;
 					}
 					else if (k == 2)
 					{
-						sshadow = surfelShadow( s, &pc[i], &s->f[j], recVec) * pc[j].accessibility;
+						sshadow = surfelShadow( s, &pc[i], &s->f[j]) * pc[j].accessibility;
 						sshadow_total += sshadow;
 					}
 					else if (k == 3)
 					{
-						sshadow = surfelShadow( s, &pc[i], &s->f[j], recVec) * pc[j].acc_2nd_pass;
+						sshadow = surfelShadow( s, &pc[i], &s->f[j]) * pc[j].acc_2nd_pass;
 						sshadow_total += sshadow;
 					}
-					if (k == passes)
-					{
-						pc[i].bentNormal = sub( pc[i].bentNormal, mul( sshadow, recVec));
-					}
 				}
-			}
-			if (k == passes)
-			{
-				pc[i].bentNormal = normalizeVector( pc[i].bentNormal);
-				// store normals in a range-compressed format to fit the texture color range format
-				bentNormalAndAccessibility[ pc[i].texelId * 4     ] = 0.5 * pc[i].bentNormal.x + 0.5;
-				bentNormalAndAccessibility[ pc[i].texelId * 4 + 1 ] = 0.5 * pc[i].bentNormal.y + 0.5;
-				bentNormalAndAccessibility[ pc[i].texelId * 4 + 2 ] = 0.5 * pc[i].bentNormal.z + 0.5;
 			}
 			if (k == 1)
 			{
 				pc[i].accessibility = 1.f - sshadow_total;
-				bentNormalAndAccessibility[ pc[i].texelId * 4 + 3 ] = pc.at(i).accessibility;
+				accessibility[ pc[i].texelId ] = pc.at(i).accessibility;
 			}
 			else if (k == 2)
 			{
 				pc[i].acc_2nd_pass = 1.f - sshadow_total;
-				bentNormalAndAccessibility[ pc[i].texelId * 4 + 3 ] = pc.at(i).acc_2nd_pass;
+				accessibility[ pc[i].texelId ] = pc.at(i).acc_2nd_pass;
 			}
 			else if (k == 3)
 			{
 				pc[i].acc_3rd_pass = 1.f - sshadow_total;
-				bentNormalAndAccessibility[ pc[i].texelId * 4 + 3 ] = pc.at(i).acc_3rd_pass;
+				accessibility[ pc[i].texelId ] = pc.at(i).acc_3rd_pass;
 			}
 		}
 	}

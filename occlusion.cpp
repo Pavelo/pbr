@@ -58,7 +58,6 @@ enum ViewMode
 ////////////////////////////////////////////////////////////////////////////////
 // data structures
 typedef struct _Vertex    Vertex;
-typedef struct _Halfedge  Halfedge;
 typedef struct _Face      Face;
 typedef struct _Solid     Solid;
 typedef struct _Surfel    Surfel;
@@ -66,18 +65,6 @@ typedef struct _Surfel    Surfel;
 struct _Vertex
 {
 	float3 pos;
-	Halfedge* he;	// one of the half-edges starting from this vertex
-};
-
-struct _Halfedge
-{
-	Vertex* vert;		// vertex at the beginning of the half-edge
-	float3* vn;			// vertex normal of the face the half-edge belongs to
-	Face* face;			// face bordered by the half-edge
-	Halfedge* twin;		// the half-edge adjacent and opposed
-	Halfedge* next;		// next half-edge along the same face
-	Halfedge* prev;		// previous half-edge along the same face
-	float length;
 };
 
 struct _Face
@@ -85,7 +72,6 @@ struct _Face
 	uint3 v;
 	uint3 t;
 	uint3 n;
-	Halfedge* he;	// one of the half-edges bordering the face
 	float area;
 	float3 centroid;
 	float3 normal;
@@ -97,7 +83,6 @@ struct _Solid
 	vector<float2> vt;
 	vector<float3> vn;
 	vector<Face> f;
-	vector<Halfedge> he;
 	
 	float ambient[3];
 	float diffuse[3];
@@ -116,9 +101,6 @@ struct _Surfel {
 	int texelId;
 	int faceId;
 	float area;
-	float radius;         // radius of a circle with this surfel area (for displaying purpose)
-	float phi;            // angle between initial normal and actual normal (for displaying purpose)
-	float3 rot_axis;      // roation axis needed to correctly orient the surfel representation
 	float accessibility;  // accessibility value: percentage of the hemisphere above each surfel not occluded by geometry
 	float acc_2nd_pass;   // accessibility value got with two-passes computation
 	float acc_3rd_pass;
@@ -135,8 +117,6 @@ float anim = 0.0;
 Solid* h_imesh;
 Solid* h_omesh;
 vector<Surfel> pointCloud;
-int slices;
-float theta;
 ViewMode view_model = S_DIR_LIGHTS;
 float light_rotate_x = 0.0, light_rotate_y = 0.0f;
 float light_orientation[] = {0.0, 0.2, 0.8, 0.0};
@@ -169,15 +149,9 @@ extern "C" void faceArea(int n_faces, int4* face_v_id, float3* vertex, float* fa
 ////////////////////////////////////////////////////////////////////////////////
 // declaration, forward
 string help();
-CUTBoolean createHalfedgeList( Solid* s);
-Halfedge* findTwin( Halfedge* hedge, Solid* s);
-float halfedgeLength( Vertex* v1, Vertex* v2);
 float semiperimeter( vector<float> length);
-CUTBoolean faceArea( Solid* s);
-float surfelArea( Vertex* v);
 float3 faceCentroid( Face* f, Solid* s);
 float3 faceNormal( Face* f, Solid* s);
-float3 getVector( Halfedge* he);
 float3 getVector( float3 tail, float3 head);
 float3 reverseVector( float3 v);
 CUTBoolean preprocessing( int argc, char** argv);
@@ -210,13 +184,7 @@ void drawCube( float size);
 void drawSolid( Solid* model);
 void drawFaceNormals( Solid* s);
 void drawPointCloud( vector<Surfel> &cloud);
-void drawSurfel( Surfel* sf);
 void drawPoint( Surfel* sf);
-void drawCircle();
-void displayOcclusion( Solid* s, vector<Surfel> &pc);
-void displayOcclusionDoublePass( Solid* s, vector<Surfel> &pc);
-void displayOcclusionTriplePass( Solid* s, vector<Surfel> &pc);
-void displayBentNormal( Solid* model, vector<Surfel> &pc);
 void noiseTexture( float* texel, int dim);
 void checkersTexture( float* texel, int dim, float color0 = 0.0, float color1 = 1.0);
 
@@ -246,7 +214,6 @@ float3 normalizeVector( float3 vec);
 float dot( float2 v1, float2 v2);
 float dot( float3 v1, float3 v2);
 float3 cross( float3 v1, float3 v2);
-float3 normalsAverage( vector<float3> normals, vector<float> weights);
 float clamp( float val, float inf = 0.0f, float sup = 1.0f);
 float abs( float n);
 float round( float n);
@@ -1048,181 +1015,11 @@ void drawSolid(Solid* model)
 		glNormal3f(model->vn[model->f[i].n.z-1].x, model->vn[model->f[i].n.z-1].y, model->vn[model->f[i].n.z-1].z);
 		glTexCoord2f(model->vt[model->f[i].t.z-1].x, model->vt[model->f[i].t.z-1].y);
 		glVertex3f(model->v[model->f[i].v.z-1].pos.x, model->v[model->f[i].v.z-1].pos.y, model->v[model->f[i].v.z-1].pos.z);
-		
-//		if (counter == 1)
-//			printf("f %d/%d/%f %d/%d/%f %d/%d/%f\n"
-//				   , model->f[i].v.x, model->f[i].t.x, model->vn[model->f[i].n.x].x
-//				   , model->f[i].v.y, model->f[i].t.y, model->vn[model->f[i].n.y].y
-//				   , model->f[i].v.z, model->f[i].t.z, model->vn[model->f[i].n.z].z);
 	}
-	
-//	counter++;
-	
 	glEnd();
 
 	glDisable(GL_LIGHTING);
 	glDisable(GL_TEXTURE_2D);
-}
-
-void displayBentNormal(Solid* model, vector<Surfel> &pc)
-{
-	glMaterialfv(GL_FRONT, GL_AMBIENT, model->ambient);
-	glMaterialfv(GL_FRONT, GL_DIFFUSE, model->diffuse);
-
-	glEnable(GL_LIGHTING);
-
-	glBegin(GL_TRIANGLES);
-	for (unsigned int i=0; i < model->f.size(); i++)
-	{
-		glNormal3f( pc[i].bentNormal.x, pc[i].bentNormal.y, pc[i].bentNormal.z);
-		glVertex3f(model->v[model->f[i].v.x-1].pos.x, model->v[model->f[i].v.x-1].pos.y, model->v[model->f[i].v.x-1].pos.z);
-		
-		glVertex3f(model->v[model->f[i].v.y-1].pos.x, model->v[model->f[i].v.y-1].pos.y, model->v[model->f[i].v.y-1].pos.z);
-		
-		glVertex3f(model->v[model->f[i].v.z-1].pos.x, model->v[model->f[i].v.z-1].pos.y, model->v[model->f[i].v.z-1].pos.z);
-	}
-	glEnd();
-
-	glDisable(GL_LIGHTING);
-}
-
-CUTBoolean createHalfedgeList(Solid* s)
-{
-	if ( s->v.empty() || s->f.empty()) {
-		cerr << "vertex list or face list is empty!" << endl;
-		return CUTFalse;
-	}
-	if ( !s->he.empty()) {
-		cerr << "half-edge list already exists!" << endl;
-		return CUTFalse;
-	}
-	
-	Halfedge hedge, border, *start, *current, *border_head;
-	s->he.reserve( 6 * s->f.size());
-	// *** number of faces is multiplied by 6 because in the worst case
-	// *** each face has 3 border half-edges in addition to its 3 ones.
-	for (unsigned int i=0; i < s->f.size(); i++) {
-		hedge.vert = &s->v[ s->f[i].v.x-1 ];
-		hedge.vn = &s->vn[ s->f[i].n.x-1 ];
-		hedge.face = &s->f[i];
-		s->he.push_back(hedge);
-		hedge.vert = &s->v[ s->f[i].v.y-1 ];
-		hedge.vn = &s->vn[ s->f[i].n.y-1 ];
-		hedge.face = &s->f[i];
-		s->he.push_back(hedge);
-		hedge.vert = &s->v[ s->f[i].v.z-1 ];
-		hedge.vn = &s->vn[ s->f[i].n.z-1 ];
-		hedge.face = &s->f[i];
-		s->he.push_back(hedge);
-		
-		s->f[i].he = &s->he.back();	// half-edge pointer of the face
-	}
-	
-	// find half-edge successor and predecessor
-	for (unsigned int i=0; i < s->he.size(); i+=3) {
-		s->he[ i   ].next = &s->he[ i+1 ];
-		s->he[ i+1 ].next = &s->he[ i+2 ];
-		s->he[ i+2 ].next = &s->he[ i   ];
-		
-		s->he[ i   ].prev = &s->he[ i+2 ];
-		s->he[ i+1 ].prev = &s->he[ i   ];
-		s->he[ i+2 ].prev = &s->he[ i+1 ];
-	}
-	
-	// fill half-edge pointer of the vertex
-	for (unsigned int i=0; i < s->he.size(); i++) {
-		s->he[i].vert->he = &s->he[i];
-	}
-	
-	// find the half-edge adjacent and opposed to the current half-edge
-	for (unsigned int i=0; i < s->he.size(); i++) {
-		s->he[i].twin = findTwin(&s->he[i], s);
-	}
-	
-	// build any border halfe-edge of non-manifold meshes
-	for (unsigned int i=0; i < s->v.size(); i++)
-	{
-		border_head = NULL;
-		start = current = s->v[i].he;
-		do {
-			if ( !current->twin )
-			{
-				border.vert = current->next->vert;
-				border.vn = NULL;
-				border.face = NULL;
-				border.twin = current;
-				border.next = &s->he.back();
-				border.prev = NULL;
-				
-				s->he.push_back(border);
-				if ( border_head == NULL ) {
-					border_head = &s->he.back();
-				} else {
-				}
-				border_head->next = &s->he.back();
-
-				current->twin = &s->he.back();
-				current = current->next;
-			}
-			else {
-				current = current->twin->next;
-			}
-		} while (current != start);
-		
-		current = &s->he.back();
-		while ( !current->next->prev ) {
-			current->next->prev = current;
-			current = current->next;
-		}
-	}
-	
-//	for (unsigned int i=0; i < s->v.size(); i++) {
-//		printf("v %3i %8p, he start %8p\n",i+1,&s->v[i],s->v[i].he);
-//	}
-//	for (unsigned int i=0; i < s->he.size(); i++) {
-//		printf("he %3i %8p, v %8p ",i,&s->he[i],s->he[i].vert);
-//		if (!s->he[i].face) {
-//			printf("border\n");
-//		} else {
-//			printf("\n");
-//		}
-//
-//	}
-
-	return CUTTrue;
-}
-
-Halfedge* findTwin(Halfedge* hedge, Solid* s)
-{
-	Halfedge* twin_candidate;
-	Vertex* start, *end;
-	
-	start = hedge->vert;
-	end = hedge->next->vert;
-
-	for (unsigned int i=0; i < s->f.size(); i++) {
-		twin_candidate = s->f[i].he;
-		do {
-			if (start == twin_candidate->next->vert && end == twin_candidate->vert) {
-				return twin_candidate;
-			}
-			twin_candidate = twin_candidate->next;
-		} while (s->f[i].he != twin_candidate);
-	}
-	
-	return NULL;
-}
-
-float halfedgeLength(Vertex* v1, Vertex* v2)
-{
-	
-	float x_diff, y_diff, z_diff;
-	
-	x_diff = v1->pos.x - v2->pos.x;
-	y_diff = v1->pos.y - v2->pos.y;
-	z_diff = v1->pos.z - v2->pos.z;
-	
-	return sqrt( x_diff*x_diff + y_diff*y_diff + z_diff*z_diff );
 }
 
 float semiperimeter( vector<float> length)
@@ -1234,54 +1031,6 @@ float semiperimeter( vector<float> length)
 	}
 	
 	return perimeter * .5f;
-}
-
-CUTBoolean faceArea(Solid* s)
-{
-	Halfedge* he_temp;
-	vector<float> he_length;
-	float sp;
-
-	// calculate half-edge length
-	for (unsigned int i=0; i < s->v.size(); i++) {
-		he_temp = s->v[i].he;
-		do {
-			he_temp->length = halfedgeLength( he_temp->vert, he_temp->twin->vert);
-			he_temp = he_temp->twin->next;
-		} while (he_temp != s->v[i].he);
-	}
-	
-	// for each face calculate its area
-	for (unsigned int i=0; i < s->f.size(); i++) {
-		he_length.clear();
-		he_temp = s->f[i].he;
-		do {
-			he_length.push_back( he_temp->length);
-			he_temp = he_temp->next;
-		} while (he_temp != s->f[i].he);
-		
-		sp = semiperimeter( he_length);
-		
-		// area is obtained with Heron's formula
-		s->f[i].area = sqrt( sp * (sp - he_length.at(0)) * (sp - he_length.at(1)) * (sp - he_length.at(2)) );
-	}
-	
-	return CUTTrue;
-}
-
-// normalized average of a group of normals
-float3 normalsAverage(vector<float3> normals, vector<float> weights)
-{
-	float3 sum = make_float3(0,0,0);
-	unsigned int nn = normals.size();
-
-	for (unsigned int i=0; i < nn; i++) {
-		sum.x += weights[i] * normals[i].x;
-		sum.y += weights[i] * normals[i].y;
-		sum.z += weights[i] * normals[i].z;
-	}
-
-	return normalizeVector( sum);
 }
 
 float norm(float3 vec)
@@ -1370,22 +1119,6 @@ float abs(float n)
 float round(float n)
 {
 	return floor( n + 0.5);
-}
-
-float surfelArea(Vertex* v)
-{
-	Halfedge* hedge = v->he;
-	float area_sum = .0f;
-	
-	do {
-		if ( hedge->face )
-		{
-			area_sum += hedge->face->area;
-		}
-		hedge = hedge->twin->next;
-	} while (hedge != v->he);
-	
-	return area_sum * .3333333333f;
 }
 
 CUTBoolean preprocessing(int argc, char** argv)
@@ -1653,27 +1386,6 @@ void drawPointCloud(vector<Surfel> &cloud)
 	glEnd();
 }
 
-void drawSurfel(Surfel* sf)
-{
-	glPushMatrix();
-		glTranslatef( sf->pos.x, sf->pos.y, sf->pos.z );
-		glRotatef( sf->phi, sf->rot_axis.x, sf->rot_axis.y, sf->rot_axis.z );
-		glScalef( sf->radius, sf->radius, 1.f);
-		drawCircle();
-	glPopMatrix();
-}
-
-void drawCircle()
-{
-	glBegin(GL_TRIANGLE_FAN);
-		glNormal3f( .0f, .0f, 1.f );
-		glVertex3f( .0f, .0f, .0f );
-	for (int i=0; i <= slices; i++) {
-		glVertex3f( cos( i * theta ), sin( i * theta ), .0f );
-	}
-	glEnd();
-}
-
 void drawPoint(Surfel* sf)
 {
 	glColor3f( 1.f, 1.f, 1.f);
@@ -1706,20 +1418,6 @@ float deg(float rad)
 float rad(float deg)
 {
 	return deg * PI / 180.f;
-}
-
-// Get the normalized joint vector between the two vertexes connected by the half-edge
-float3 getVector(Halfedge* he)
-{
-	float3 head, tail, res;
-	
-	tail = he->vert->pos;
-	head = he->twin->vert->pos;
-	res.x = head.x - tail.x;
-	res.y = head.y - tail.y;
-	res.z = head.z - tail.z;
-
-	return normalizeVector( res);
 }
 
 // Get the vector from tail to head (which are points)
@@ -2368,7 +2066,6 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc, Solid* s, float* bentNormal
 					if (k == passes)
 					{
 						pc[i].bentNormal = sub( pc[i].bentNormal, mul( sshadow, recVec));
-						//					printf("%4i recVec         ( %f, %f, %f )\n",i,recVec.x,recVec.y,recVec.z);
 					}
 				}
 			}
@@ -2399,48 +2096,6 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc, Solid* s, float* bentNormal
 	}
 
 	return CUTTrue;
-}
-
-void displayOcclusion(Solid* s, vector<Surfel> &pc)
-{
-	glBegin(GL_TRIANGLES);
-	for (unsigned int i=0; i < s->f.size(); i++)
-	{
-		glColor3f( pc[i].accessibility, pc[i].accessibility, pc[i].accessibility);
-
-		glVertex3f(s->v[s->f[i].v.x-1].pos.x, s->v[s->f[i].v.x-1].pos.y, s->v[s->f[i].v.x-1].pos.z);
-		glVertex3f(s->v[s->f[i].v.y-1].pos.x, s->v[s->f[i].v.y-1].pos.y, s->v[s->f[i].v.y-1].pos.z);
-		glVertex3f(s->v[s->f[i].v.z-1].pos.x, s->v[s->f[i].v.z-1].pos.y, s->v[s->f[i].v.z-1].pos.z);
-	}
-	glEnd();
-}
-
-void displayOcclusionDoublePass(Solid* s, vector<Surfel> &pc)
-{
-	glBegin(GL_TRIANGLES);
-	for (unsigned int i=0; i < s->f.size(); i++)
-	{
-		glColor3f( pc[i].acc_2nd_pass, pc[i].acc_2nd_pass, pc[i].acc_2nd_pass);
-		
-		glVertex3f(s->v[s->f[i].v.x-1].pos.x, s->v[s->f[i].v.x-1].pos.y, s->v[s->f[i].v.x-1].pos.z);
-		glVertex3f(s->v[s->f[i].v.y-1].pos.x, s->v[s->f[i].v.y-1].pos.y, s->v[s->f[i].v.y-1].pos.z);
-		glVertex3f(s->v[s->f[i].v.z-1].pos.x, s->v[s->f[i].v.z-1].pos.y, s->v[s->f[i].v.z-1].pos.z);
-	}
-	glEnd();
-}
-
-void displayOcclusionTriplePass(Solid* s, vector<Surfel> &pc)
-{
-	glBegin(GL_TRIANGLES);
-	for (unsigned int i=0; i < s->f.size(); i++)
-	{
-		glColor3f( pc[i].acc_3rd_pass, pc[i].acc_3rd_pass, pc[i].acc_3rd_pass);
-		
-		glVertex3f(s->v[s->f[i].v.x-1].pos.x, s->v[s->f[i].v.x-1].pos.y, s->v[s->f[i].v.x-1].pos.z);
-		glVertex3f(s->v[s->f[i].v.y-1].pos.x, s->v[s->f[i].v.y-1].pos.y, s->v[s->f[i].v.y-1].pos.z);
-		glVertex3f(s->v[s->f[i].v.z-1].pos.x, s->v[s->f[i].v.z-1].pos.y, s->v[s->f[i].v.z-1].pos.z);
-	}
-	glEnd();
 }
 
 CUTBoolean loadPointCloud(const char* path, vector<Surfel> &pc, int &mapDim)

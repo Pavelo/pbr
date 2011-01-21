@@ -100,9 +100,6 @@ struct _Surfel
 	int texelId;
 	int faceId;
 	float area;
-	float accessibility;  // accessibility value: percentage of the hemisphere above each surfel not occluded by geometry
-	float acc_2nd_pass;   // accessibility value got with two-passes computation
-	float acc_3rd_pass;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1971,9 +1968,13 @@ float surfelShadow(Solid* s, Surfel* receiver, Face* emitter)
 
 CUTBoolean occlusion(int passes, vector<Surfel> &pc, Solid* s, float* accessibility)
 {
-	float sshadow, sshadow_total;
+	float sshadow_total, **ss_global;
+	
+	ss_global = (float**) malloc( pc.size() * sizeof(float*));
+	for (unsigned int i=0; i < pc.size(); i++) {
+		ss_global[i] = (float*) malloc( s->f.size() * sizeof(float));
+	}
 
-	sshadow = 0.0f;
 	for (int k=1; k <= passes; k++)
 	{
 		for (unsigned int i=0; i < pc.size(); i++)
@@ -1985,38 +1986,23 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc, Solid* s, float* accessibil
 				{ // if surfel lays on a face except the current face
 					if (k == 1)
 					{
-						sshadow = surfelShadow( s, &pc[i], &s->f[j]);
-						sshadow_total += sshadow;
+						ss_global[i][j] = surfelShadow( s, &pc[i], &s->f[j]);
+						sshadow_total += ss_global[i][j];
 					}
-					else if (k == 2)
+					else
 					{
-						sshadow = surfelShadow( s, &pc[i], &s->f[j]) * pc[j].accessibility;
-						sshadow_total += sshadow;
-					}
-					else if (k == 3)
-					{
-						sshadow = surfelShadow( s, &pc[i], &s->f[j]) * pc[j].acc_2nd_pass;
-						sshadow_total += sshadow;
+						sshadow_total += ss_global[i][j] * accessibility[ pc[i].texelId ];
 					}
 				}
 			}
-			if (k == 1)
-			{
-				pc[i].accessibility = 1.f - sshadow_total;
-				accessibility[ pc[i].texelId ] = pc.at(i).accessibility;
-			}
-			else if (k == 2)
-			{
-				pc[i].acc_2nd_pass = 1.f - sshadow_total;
-				accessibility[ pc[i].texelId ] = pc.at(i).acc_2nd_pass;
-			}
-			else if (k == 3)
-			{
-				pc[i].acc_3rd_pass = 1.f - sshadow_total;
-				accessibility[ pc[i].texelId ] = pc.at(i).acc_3rd_pass;
-			}
+			accessibility[ pc[i].texelId ] = 1.f - sshadow_total;
 		}
 	}
+	
+	for (unsigned int i=0; i < pc.size(); i++) {
+		free(ss_global[i]);
+	}
+	free(ss_global);
 
 	return CUTTrue;
 }

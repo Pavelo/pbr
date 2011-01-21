@@ -42,6 +42,10 @@ using namespace std;
 
 // definitions
 #define PI 3.14159265358979323846f
+#define INIT_ROTATE_X 15.0f
+#define INIT_ROTATE_Y 330.0f
+#define INIT_LIGHT_ROTATE_X 0.0f
+#define INIT_LIGHT_ROTATE_Y 0.0f
 
 // enumerated types
 enum ViewMode
@@ -114,7 +118,7 @@ Solid* h_imesh;
 Solid* h_omesh;
 vector<Surfel> pointCloud;
 ViewMode view_model = S_DIR_LIGHTS;
-float light_rotate_x = 0.0, light_rotate_y = 0.0f;
+float light_rotate_x = INIT_LIGHT_ROTATE_X, light_rotate_y = INIT_LIGHT_ROTATE_Y;
 float light_orientation[] = {0.0, 0.2, 0.8, 0.0};
 bool altPressed = false;
 GLuint shaderSelected = 0, shaderID[8];
@@ -123,7 +127,7 @@ int counter = 0;
 // mouse controls
 int mouse_old_x, mouse_old_y;
 int mouse_buttons = 0;
-float rotate_x = 0.0, rotate_y = 0.0;
+float rotate_x = INIT_ROTATE_X, rotate_y = INIT_ROTATE_Y;
 float3 translate = make_float3( .0f, .0f, -10.0f);
 
 // Auto-Verification Code
@@ -350,7 +354,7 @@ CUTBoolean initGL(int argc, char **argv)
 	}
 
     // default initialization
-    glClearColor(0.1, 0.3, 0.3, 1.0);
+    glClearColor(0.0, 0.52, 0.78, 1.0);
     glEnable(GL_DEPTH_TEST);
 
     // viewport
@@ -639,11 +643,14 @@ void keyboard(unsigned char key, int /*x*/, int /*y*/)
 		case 32:
 			if ( glutGetModifiers() == GLUT_ACTIVE_ALT )
 			{
-				light_rotate_x = light_rotate_y = 0.0;
+				light_rotate_x = INIT_LIGHT_ROTATE_X;
+				light_rotate_y = INIT_LIGHT_ROTATE_Y;
 			}
 			else
 			{
-				rotate_x = rotate_y = translate.x = translate.y = 0.0;
+				rotate_x = INIT_ROTATE_X;
+				rotate_y = INIT_ROTATE_Y;
+				translate.x = translate.y = 0.0;
 				translate.z = -10.0;
 			}
 			break;

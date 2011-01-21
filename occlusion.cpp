@@ -51,7 +51,7 @@ enum ViewMode
 	NORMALS       = 2,
 	S_DIR_LIGHTS  = 3,
 	S_OCCLUSION   = 4,
-	S_OCC_AND_DIR = 5,
+	S_OCC_AND_DIR = 5
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -93,7 +93,8 @@ struct _Solid
 	string* texturePath;
 };
 
-struct _Surfel {
+struct _Surfel
+{
 	float3 pos;
 	float3 normal;
 	int texelId;
@@ -524,7 +525,8 @@ void display()
 
 	glUseProgram(shaderSelected);
 	
-	switch (view_model) {
+	switch (view_model)
+	{
 		case POINTS:
 			drawPointCloud(pointCloud);
 			break;

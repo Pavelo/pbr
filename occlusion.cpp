@@ -166,8 +166,8 @@ extern "C" void faceArea(int n_faces, int4* face_v_id, float3* vertex, float* fa
 // declaration, forward
 string help();
 float semiperimeter( vector<float> length);
-float3 faceCentroid( Face* f, Solid* s);
-float3 faceNormal( Face* f, Solid* s);
+float3 faceCentroid( Face* f);
+float3 faceNormal( Face* f);
 float3 getVector( float3 tail, float3 head);
 float3 reverseVector( float3 v);
 CUTBoolean preprocessing( int argc, char** argv);
@@ -175,7 +175,7 @@ CUTBoolean run( int argc, char** argv);
 void cleanup();
 void setLighting();
 void setAOTexture();
-CUTBoolean createPointCloud( int mapResolution, vector<Surfel> &pc, Solid* s);
+CUTBoolean createPointCloud( int mapResolution, vector<Surfel> &pc);
 CUTBoolean savePointCloud( vector<Surfel> &pc, const char* path, int mapDim);
 CUTBoolean loadPointCloud( const char* path, vector<Surfel> &pc, int &mapDim);
 float2 texelCentre( int dx, int dy, float du);
@@ -183,9 +183,9 @@ bool pointInTriangle( float2 p, float2 t0, float2 t1, float2 t2, float &beta, fl
 float4 rasterizeCoordinates( int faceId, float2 texelUV, float2 t0, float2 t1, float2 t2, float4 itself);
 float4 rasterizeBorders( int faceId, float2 texelUV, vector<float2> &vt, vector<Face> &f);
 void dilatePatchesBorders( int dim, float2** texelUV, float4** original, float4** dilated, vector<Face> &faces, vector<float2> &vts);
-CUTBoolean occlusion( int passes, vector<Surfel> &pc, Solid* s, float* accessibility);
+CUTBoolean occlusion( int passes, vector<Surfel> &pc, float* accessibility);
 float formFactor_pA( Surfel* receiver, Face* emitterF);
-float surfelShadow( Solid* s, Surfel* receiver, Face* emitter);
+float surfelShadow( Surfel* receiver, Face* emitter);
 
 // IL functionality
 bool initIL();
@@ -1161,7 +1161,7 @@ float round(float n)
 
 CUTBoolean preprocessing(int argc, char** argv)
 {
-//	int surfelMapDim;
+	int surfelMapDim;
 
 	// load poly mesh
 	string dir, filename, path, msg;
@@ -1210,145 +1210,145 @@ CUTBoolean preprocessing(int argc, char** argv)
 //			   );
 //	}
 	
-//	if ( h_imesh->vt.empty() )
-//	{
-//		cerr << "UVs not mapped!\nPlease, load a mesh with mapped texture coordinates." << endl;
-//		return CUTFalse;
-//	}
-//	// calculate face centroid and normal
-//	Face* tempF;
-//	for (unsigned int i=0;  i < h_imesh->f.size(); i++) {
-//		tempF = &h_imesh->f[i];
-//		tempF->centroid = faceCentroid( tempF, h_imesh);
-//		tempF->normal = faceNormal( tempF, h_imesh);
-//	}
-//	cout << "done" << endl;
-//	
-//	// create or load point cloud
-//	if ( cutCheckCmdLineFlag( argc, (const char**)argv, "map")) {
-//		cutGetCmdLineArgumenti( argc, (const char**)argv, "map", &surfelMapDim);
-//	} else {
-//		surfelMapDim = 64;
-//	}
-//
-//	cout << "Loading surfels cloud... ";
-//	cout.flush();
-//	dir = "/Developer/GPU Computing/C/src/occlusion/pointClouds/";
-//	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "cloud"))
-//	{ // point cloud passed by argument
-//		cutGetCmdLineArgumentstr( argc, (const char**)argv, "cloud", cfilename );
-//		filename = *cfilename;
-//		path = dir + filename;
-//
-//		if ( !loadPointCloud(path.c_str(), pointCloud, surfelMapDim))
-//		{ // point cloud doesn't exist
-//			do {
-//				cout << "File \"" << filename << "\" does not exist! Create it? ";
-//				getline(cin, msg);
-//				
-//				if (msg[0] == 'y' || msg[0] == 'Y') {
-//					cout << "Creating surfels cloud..." << endl;
-//					createPointCloud( surfelMapDim, pointCloud, h_imesh);
-//					cout << "Saving to \"" << filename << "\"..." << endl;
-//					savePointCloud( pointCloud, path.c_str(), surfelMapDim);
-//				} else if (msg[0] == 'n' || msg[0] == 'N') {
-//					cerr << "Cannot load any surfel cloud. Aborting..." << endl;
-//					return CUTFalse;
-//				} else {
-//					cout << "Answer with 'yes' or 'no'. ";
-//				}
-//			} while (msg.find_first_of("ynYN") != 0);
-//		}
-//		else
-//		{ // point cloud exists
-//			cout << "\"" << filename << "\" loaded correctly" << endl;
-//		}
-//	}
-//	else
-//	{ // default point cloud
-//		filename.replace( filename.length()-4, filename.length(), ".sfc" );
-//		path = dir + filename;
-//		
-//		if ( !loadPointCloud( path.c_str(), pointCloud, surfelMapDim))
-//		{ // point cloud doesn't exist
-//			cout << "Creating surfels cloud... " << endl;
-//			createPointCloud( surfelMapDim, pointCloud, h_imesh);
-//			cout << "Saving to \"" << filename << "\"..." << endl;
-//			savePointCloud( pointCloud, path.c_str(), surfelMapDim);
-//		}
-//		else
-//		{ // point cloud exists
-//			cout << "\"" << filename << "\" loaded correctly" << endl;
-//		}
-//	}
-//
-//	// compute or load ambient occlusion texture
-//	ILuint imgId;
-//	int multipass;
-//	float* acc;
-//	
-//	if ( cutCheckCmdLineFlag( argc, (const char**)argv, "multipass")) {
-//		cutGetCmdLineArgumenti( argc, (const char**)argv, "multipass", &multipass);
-//	} else {
-//		multipass = 1;
-//	}
-//	dir = "/Developer/GPU Computing/C/src/occlusion/occlusionTextures/";
-//
-//	acc = (float*) malloc( surfelMapDim * surfelMapDim * sizeof(float));
-//	for (int i=0; i < surfelMapDim * surfelMapDim; i++) {
-//		acc[i] = 1.0;
-//	}
-//	
-//	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "texture"))
-//	{ // occlusion map is passed by argument
-//		cutGetCmdLineArgumentstr( argc, (const char**)argv, "texture", cfilename);
-//		filename = *cfilename;
-//		path = dir + filename;
-//	}
-//	else
-//	{ // default occlusion map
-//		cutGetCmdLineArgumentstr( argc, (const char**)argv, "mesh", cfilename);
-//		filename = *cfilename;
-//		filename.replace( filename.length()-4, filename.length(), ".tga" );
-//		path = dir + filename;
-//	}
-//
-//	ilGenImages( 1, &imgId);
-//	ilBindImage( imgId);
-//	if ( !ilLoadImage( path.c_str()) )
-//	{ // occlusion map doesn't exist
-//		handleDevILErrors();
-//		cout << "Computing ambient occlusion... ";
-//		cout.flush();
-//		occlusion( multipass, pointCloud, h_imesh, acc);
-//		cout << "done" << endl;
-//		cout << "Saving to \"" << filename << "\"... ";
-//		cout.flush();
-//		
-//		ilTexImage (surfelMapDim, // width
-//					surfelMapDim, // height
-//					1,            // depth
-//					1,            // Bpp
-//					IL_LUMINANCE, // format
-//					IL_FLOAT,     // type
-//					acc);         // data
-//		// turn image the right direction
-//		iluRotate(90);
-//		iluMirror();
-//		
-//		ilEnable(IL_FILE_OVERWRITE);
-//		ilSave( IL_TGA, path.c_str());
-//		handleDevILErrors();
-//		cout << "done" << endl;
-//	}
-//	else
-//	{ // occlusion map exists
-//		cout << "Ambient occlusion map \"" << filename << "\" loaded correctly" << endl;
-//	}
-//	ilConvertImage(IL_LUMINANCE, IL_FLOAT);
+	if ( scn->vt.empty() )
+	{
+		cerr << "UVs not mapped!\nPlease, load a mesh with mapped texture coordinates." << endl;
+		return CUTFalse;
+	}
+	// calculate face centroid and normal
+	Face* tempF;
+	for (unsigned int i=0;  i < scn->f.size(); i++) {
+		tempF = &scn->f[i];
+		tempF->centroid = faceCentroid( tempF);
+		tempF->normal = faceNormal( tempF);
+	}
+	cout << "done" << endl;
+	
+	// create or load point cloud
+	if ( cutCheckCmdLineFlag( argc, (const char**)argv, "map")) {
+		cutGetCmdLineArgumenti( argc, (const char**)argv, "map", &surfelMapDim);
+	} else {
+		surfelMapDim = 64;
+	}
+
+	cout << "Loading surfels cloud... ";
+	cout.flush();
+	dir = "/Developer/GPU Computing/C/src/occlusion/pointClouds/";
+	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "cloud"))
+	{ // point cloud passed by argument
+		cutGetCmdLineArgumentstr( argc, (const char**)argv, "cloud", cfilename );
+		filename = *cfilename;
+		path = dir + filename;
+
+		if ( !loadPointCloud(path.c_str(), pointCloud, surfelMapDim))
+		{ // point cloud doesn't exist
+			do {
+				cout << "File \"" << filename << "\" does not exist! Create it? ";
+				getline(cin, msg);
+				
+				if (msg[0] == 'y' || msg[0] == 'Y') {
+					cout << "Creating surfels cloud..." << endl;
+					createPointCloud( surfelMapDim, pointCloud);
+					cout << "Saving to \"" << filename << "\"..." << endl;
+					savePointCloud( pointCloud, path.c_str(), surfelMapDim);
+				} else if (msg[0] == 'n' || msg[0] == 'N') {
+					cerr << "Cannot load any surfel cloud. Aborting..." << endl;
+					return CUTFalse;
+				} else {
+					cout << "Answer with 'yes' or 'no'. ";
+				}
+			} while (msg.find_first_of("ynYN") != 0);
+		}
+		else
+		{ // point cloud exists
+			cout << "\"" << filename << "\" loaded correctly" << endl;
+		}
+	}
+	else
+	{ // default point cloud
+		filename.replace( filename.length()-4, filename.length(), ".sfc" );
+		path = dir + filename;
+		
+		if ( !loadPointCloud( path.c_str(), pointCloud, surfelMapDim))
+		{ // point cloud doesn't exist
+			cout << "Creating surfels cloud... " << endl;
+			createPointCloud( surfelMapDim, pointCloud);
+			cout << "Saving to \"" << filename << "\"..." << endl;
+			savePointCloud( pointCloud, path.c_str(), surfelMapDim);
+		}
+		else
+		{ // point cloud exists
+			cout << "\"" << filename << "\" loaded correctly" << endl;
+		}
+	}
+
+	// compute or load ambient occlusion texture
+	ILuint imgId;
+	int multipass;
+	float* acc;
+	
+	if ( cutCheckCmdLineFlag( argc, (const char**)argv, "multipass")) {
+		cutGetCmdLineArgumenti( argc, (const char**)argv, "multipass", &multipass);
+	} else {
+		multipass = 1;
+	}
+	dir = "/Developer/GPU Computing/C/src/occlusion/occlusionTextures/";
+
+	acc = (float*) malloc( surfelMapDim * surfelMapDim * sizeof(float));
+	for (int i=0; i < surfelMapDim * surfelMapDim; i++) {
+		acc[i] = 1.0;
+	}
+	
+	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "texture"))
+	{ // occlusion map is passed by argument
+		cutGetCmdLineArgumentstr( argc, (const char**)argv, "texture", cfilename);
+		filename = *cfilename;
+		path = dir + filename;
+	}
+	else
+	{ // default occlusion map
+		cutGetCmdLineArgumentstr( argc, (const char**)argv, "mesh", cfilename);
+		filename = *cfilename;
+		filename.replace( filename.length()-4, filename.length(), ".tga" );
+		path = dir + filename;
+	}
+
+	ilGenImages( 1, &imgId);
+	ilBindImage( imgId);
+	if ( !ilLoadImage( path.c_str()) )
+	{ // occlusion map doesn't exist
+		handleDevILErrors();
+		cout << "Computing ambient occlusion... ";
+		cout.flush();
+		occlusion( multipass, pointCloud, acc);
+		cout << "done" << endl;
+		cout << "Saving to \"" << filename << "\"... ";
+		cout.flush();
+		
+		ilTexImage (surfelMapDim, // width
+					surfelMapDim, // height
+					1,            // depth
+					1,            // Bpp
+					IL_LUMINANCE, // format
+					IL_FLOAT,     // type
+					acc);         // data
+		// turn image the right direction
+		iluRotate(90);
+		iluMirror();
+		
+		ilEnable(IL_FILE_OVERWRITE);
+		ilSave( IL_TGA, path.c_str());
+		handleDevILErrors();
+		cout << "done" << endl;
+	}
+	else
+	{ // occlusion map exists
+		cout << "Ambient occlusion map \"" << filename << "\" loaded correctly" << endl;
+	}
+	ilConvertImage(IL_LUMINANCE, IL_FLOAT);
 
 	free(cfilename);
-//	free(acc);
+	free(acc);
 	
 	return CUTTrue;
 }
@@ -1527,8 +1527,8 @@ CUTBoolean savePointCloud(vector<Surfel> &pc, const char* path, int mapDim)
 
 	return CUTTrue;
 }
-/*
-CUTBoolean createPointCloud(int mapResolution, vector<Surfel> &pc, Solid* s)
+
+CUTBoolean createPointCloud(int mapResolution, vector<Surfel> &pc)
 {
 	int faceId;
 	float alpha, beta, gamma;
@@ -1561,11 +1561,11 @@ CUTBoolean createPointCloud(int mapResolution, vector<Surfel> &pc, Solid* s)
 	}
 
 	// rasterize faces
-	for (unsigned int id=0; id < s->f.size(); id++)
+	for (unsigned int id=0; id < scn->f.size(); id++)
 	{
-		vt0 = s->vt[ s->f[id].t.x-1 ];
-		vt1 = s->vt[ s->f[id].t.y-1 ];
-		vt2 = s->vt[ s->f[id].t.z-1 ];
+		vt0 = scn->vt[ scn->f[id].t.x-1 ];
+		vt1 = scn->vt[ scn->f[id].t.y-1 ];
+		vt2 = scn->vt[ scn->f[id].t.z-1 ];
 		
 		for (int i=0; i < mapResolution; i++)
 		{
@@ -1585,8 +1585,8 @@ CUTBoolean createPointCloud(int mapResolution, vector<Surfel> &pc, Solid* s)
 						  texelUV,
 						  barycentricCooAndId,
 						  dilatedBarycentricCooAndId,
-						  s->f,
-						  s->vt);
+						  scn->f,
+						  scn->vt);
 
 	for (int i=0; i < mapResolution; i++)
 	{
@@ -1600,15 +1600,15 @@ CUTBoolean createPointCloud(int mapResolution, vector<Surfel> &pc, Solid* s)
 				gamma = dilatedBarycentricCooAndId[i][j].z;
 
 				// interpolate surfel position ( alpha*A + beta*B + gamma*C )
-				v0 = s->v[ s->f[ faceId ].v.x-1 ].pos;
-				v1 = s->v[ s->f[ faceId ].v.y-1 ].pos;
-				v2 = s->v[ s->f[ faceId ].v.z-1 ].pos;
+				v0 = scn->v[ scn->f[ faceId ].v.x-1 ].pos;
+				v1 = scn->v[ scn->f[ faceId ].v.y-1 ].pos;
+				v2 = scn->v[ scn->f[ faceId ].v.z-1 ].pos;
 				point.pos = add( add( mul( alpha, v0), mul( beta, v1)), mul( gamma, v2));
 
 				// interpolate surfel normal ( alpha*Na + beta*Nb + gamma*Nc )
-				n0 = s->vn[ s->f[ faceId ].n.x-1 ];
-				n1 = s->vn[ s->f[ faceId ].n.y-1 ];
-				n2 = s->vn[ s->f[ faceId ].n.z-1 ];
+				n0 = scn->vn[ scn->f[ faceId ].n.x-1 ];
+				n1 = scn->vn[ scn->f[ faceId ].n.y-1 ];
+				n2 = scn->vn[ scn->f[ faceId ].n.z-1 ];
 				point.normal = normalizeVector( add( add( mul( alpha, n0), mul( beta, n1)), mul( gamma, n2)));
 
 				// store surfel
@@ -1631,7 +1631,7 @@ CUTBoolean createPointCloud(int mapResolution, vector<Surfel> &pc, Solid* s)
 
 	return CUTTrue;
 }
-*/
+
 void dilatePatchesBorders(int dim, float2** texelUV, float4** original, float4** dilated, vector<Face> &faces, vector<float2> &vts)
 {
 	int texelFaceId, nexti, nextj, previ, prevj;
@@ -1762,34 +1762,34 @@ float2 texelCentre(int dx, int dy, float du)
 	return uv;
 }
 
-//float3 faceCentroid(Face* f, Solid* s)
-//{
-//	float3 p, v0, v1, v2;
-//
-//	v0 = s->v[ f->v.x-1 ].pos;
-//	v1 = s->v[ f->v.y-1 ].pos;
-//	v2 = s->v[ f->v.z-1 ].pos;
-//	p = add( add( v0, v1), v2);
-//	p.x /= 3.0;
-//	p.y /= 3.0;
-//	p.z /= 3.0;
-//
-//	return p;
-//}
+float3 faceCentroid(Face* f)
+{
+	float3 p, v0, v1, v2;
 
-//float3 faceNormal(Face* f, Solid* s)
-//{
-//	float3 v0, v1, v2, a, b;
-//	
-//	v0 = s->v[ f->v.x-1 ].pos;
-//	v1 = s->v[ f->v.y-1 ].pos;
-//	v2 = s->v[ f->v.z-1 ].pos;
-//	
-//	a = getVector( v0, v1);
-//	b = getVector( v0, v2);
-//	
-//	return normalizeVector( cross( a, b));
-//}
+	v0 = scn->v[ f->v.x-1 ].pos;
+	v1 = scn->v[ f->v.y-1 ].pos;
+	v2 = scn->v[ f->v.z-1 ].pos;
+	p = add( add( v0, v1), v2);
+	p.x /= 3.0;
+	p.y /= 3.0;
+	p.z /= 3.0;
+
+	return p;
+}
+
+float3 faceNormal(Face* f)
+{
+	float3 v0, v1, v2, a, b;
+	
+	v0 = scn->v[ f->v.x-1 ].pos;
+	v1 = scn->v[ f->v.y-1 ].pos;
+	v2 = scn->v[ f->v.z-1 ].pos;
+	
+	a = getVector( v0, v1);
+	b = getVector( v0, v2);
+	
+	return normalizeVector( cross( a, b));
+}
 
 void visibleQuad(float3 p, float3 n, float3 v0, float3 v1, float3 v2, float3 &q0, float3 &q1, float3 &q2, float3 &q3)
 {
@@ -2026,69 +2026,69 @@ float formFactor_pA(Surfel* receiver, float3 q0, float3 q1, float3 q2, float3 q3
 	return fpa;
 }
 
-//float surfelShadow(Solid* s, Surfel* receiver, Face* emitter)
-//{
-//	float3 emitterVector, q0, q1, q2, q3;
-//	
-//	emitterVector = normalizeVector( getVector( emitter->centroid, receiver->pos));
-//	
-//	visibleQuad( receiver->pos,
-//				 receiver->normal,
-//				 s->v[ emitter->v.x-1 ].pos,
-//				 s->v[ emitter->v.y-1 ].pos,
-//				 s->v[ emitter->v.z-1 ].pos,
-//				 q0, q1, q2, q3);
-//
-//	if ( dot( emitter->normal, emitterVector) >= 0.0 )
-//	{
-//		return formFactor_pA( receiver, q0, q1, q2, q3);
-//	}
-//	else
-//	{
-//		return 0.0;
-//	}
-//}
-//
-//CUTBoolean occlusion(int passes, vector<Surfel> &pc, Solid* s, float* accessibility)
-//{
-//	float sshadow_total, **ss_global;
-//	
-//	ss_global = (float**) malloc( pc.size() * sizeof(float*));
-//	for (unsigned int i=0; i < pc.size(); i++) {
-//		ss_global[i] = (float*) malloc( s->f.size() * sizeof(float));
-//	}
-//
-//	for (int k=1; k <= passes; k++)
-//	{
-//		for (unsigned int i=0; i < pc.size(); i++)
-//		{
-//			sshadow_total = .0f;
-//			for (unsigned int j=0; j < s->f.size(); j++)
-//			{
-//				if ( pc[i].faceId != (int)j )
-//				{ // if surfel lays on a face except the current face
-//					if (k == 1)
-//					{
-//						ss_global[i][j] = surfelShadow( s, &pc[i], &s->f[j]);
-//						sshadow_total += ss_global[i][j];
-//					}
-//					else
-//					{
-//						sshadow_total += ss_global[i][j] * accessibility[ pc[i].texelId ];
-//					}
-//				}
-//			}
-//			accessibility[ pc[i].texelId ] = 1.f - sshadow_total;
-//		}
-//	}
-//	
-//	for (unsigned int i=0; i < pc.size(); i++) {
-//		free(ss_global[i]);
-//	}
-//	free(ss_global);
-//
-//	return CUTTrue;
-//}
+float surfelShadow(Surfel* receiver, Face* emitter)
+{
+	float3 emitterVector, q0, q1, q2, q3;
+	
+	emitterVector = normalizeVector( getVector( emitter->centroid, receiver->pos));
+	
+	visibleQuad( receiver->pos,
+				 receiver->normal,
+				 scn->v[ emitter->v.x-1 ].pos,
+				 scn->v[ emitter->v.y-1 ].pos,
+				 scn->v[ emitter->v.z-1 ].pos,
+				 q0, q1, q2, q3);
+
+	if ( dot( emitter->normal, emitterVector) >= 0.0 )
+	{
+		return formFactor_pA( receiver, q0, q1, q2, q3);
+	}
+	else
+	{
+		return 0.0;
+	}
+}
+
+CUTBoolean occlusion(int passes, vector<Surfel> &pc, float* accessibility)
+{
+	float sshadow_total, **ss_global;
+	
+	ss_global = (float**) malloc( pc.size() * sizeof(float*));
+	for (unsigned int i=0; i < pc.size(); i++) {
+		ss_global[i] = (float*) malloc( scn->f.size() * sizeof(float));
+	}
+
+	for (int k=1; k <= passes; k++)
+	{
+		for (unsigned int i=0; i < pc.size(); i++)
+		{
+			sshadow_total = .0f;
+			for (unsigned int j=0; j < scn->f.size(); j++)
+			{
+				if ( pc[i].faceId != (int)j )
+				{ // if surfel lays on a face except the current face
+					if (k == 1)
+					{
+						ss_global[i][j] = surfelShadow( &pc[i], &scn->f[j]);
+						sshadow_total += ss_global[i][j];
+					}
+					else
+					{
+						sshadow_total += ss_global[i][j] * accessibility[ pc[i].texelId ];
+					}
+				}
+			}
+			accessibility[ pc[i].texelId ] = 1.f - sshadow_total;
+		}
+	}
+	
+	for (unsigned int i=0; i < pc.size(); i++) {
+		free(ss_global[i]);
+	}
+	free(ss_global);
+
+	return CUTTrue;
+}
 
 CUTBoolean loadPointCloud(const char* path, vector<Surfel> &pc, int &mapDim)
 {

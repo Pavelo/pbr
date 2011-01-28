@@ -120,6 +120,7 @@ struct _Surfel
 	float3 normal;
 	int texelId;
 	int faceId;
+	int aotId;       // ambient occlusion texture id
 	float area;
 };
 
@@ -176,6 +177,7 @@ void cleanup();
 void setLighting();
 void setAOTexture();
 CUTBoolean createPointCloud( int mapResolution, vector<Surfel> &pc);
+CUTBoolean growPointCloud( int mapResolution, vector<Surfel> &pc, Solid &object, int aoTextureId);
 CUTBoolean savePointCloud( vector<Surfel> &pc, const char* path, int mapDim);
 CUTBoolean loadPointCloud( const char* path, vector<Surfel> &pc, int &mapDim);
 float2 texelCentre( int dx, int dy, float du);
@@ -197,6 +199,7 @@ CUTBoolean loadMTL( const char* path);
 CUTBoolean loadOBJ( const char* path);
 void drawCube( float size);
 void drawScene();
+void drawSolid( Solid &mesh);
 void drawFaceNormals();
 void drawPointCloud( vector<Surfel> &cloud);
 void drawPoint( Surfel* sf);
@@ -1027,20 +1030,17 @@ CUTBoolean loadOBJ(const char* path)
 	return loaded;
 }
 
-void drawScene()
+void drawSolid(Solid &mesh)
 {
-//	glMaterialfv(GL_FRONT, GL_AMBIENT, model->ambient);
-//	glMaterialfv(GL_FRONT, GL_DIFFUSE, model->diffuse);
-//	glMaterialfv(GL_FRONT, GL_SPECULAR, model->specular);
-//	glMaterialf(GL_FRONT, GL_SHININESS, model->shininess);
+	glMaterialfv(GL_FRONT, GL_AMBIENT, mesh.mat->ambient);
+	glMaterialfv(GL_FRONT, GL_DIFFUSE, mesh.mat->diffuse);
+	glMaterialfv(GL_FRONT, GL_SPECULAR, mesh.mat->specular);
+	glMaterialf(GL_FRONT, GL_SHININESS, mesh.mat->shininess);
 	
-	glEnable(GL_TEXTURE_2D);
 //	glBindTexture(GL_TEXTURE_2D, 0);
 
-	glEnable(GL_LIGHTING);
-
 	glBegin(GL_TRIANGLES);
-	for (unsigned int i=0; i < scn->f.size(); i++)
+	for (unsigned int i = mesh.faceBegin; i <= mesh.faceEnd; i++)
 	{
 		glNormal3f(scn->vn[scn->f[i].n.x-1].x, scn->vn[scn->f[i].n.x-1].y, scn->vn[scn->f[i].n.x-1].z);
 		glTexCoord2f(scn->vt[scn->f[i].t.x-1].x, scn->vt[scn->f[i].t.x-1].y);
@@ -1055,6 +1055,21 @@ void drawScene()
 		glVertex3f(scn->v[scn->f[i].v.z-1].pos.x, scn->v[scn->f[i].v.z-1].pos.y, scn->v[scn->f[i].v.z-1].pos.z);
 	}
 	glEnd();
+}
+
+void drawScene()
+{
+	vector<Solid>::iterator object;
+	
+	glEnable(GL_TEXTURE_2D);
+	glEnable(GL_LIGHTING);
+
+	object = scn->s.begin();
+	while ( object != scn->s.end() )
+	{
+		drawSolid( *object);
+		++object;
+	}
 
 	glDisable(GL_LIGHTING);
 	glDisable(GL_TEXTURE_2D);
@@ -1513,7 +1528,7 @@ CUTBoolean savePointCloud(vector<Surfel> &pc, const char* path, int mapDim)
 			file << pc[i].normal.x<<" "<<pc[i].normal.y<<" "<<pc[i].normal.z << endl;
 		}
 		for (unsigned int i=0; i < pc.size(); i++) {
-			file << pc[i].texelId <<" "<< pc[i].faceId << endl;
+			file << pc[i].texelId <<" "<< pc[i].faceId <<" "<< pc[i].aotId << endl;
 		}
 		
 	} else {
@@ -1528,7 +1543,7 @@ CUTBoolean savePointCloud(vector<Surfel> &pc, const char* path, int mapDim)
 	return CUTTrue;
 }
 
-CUTBoolean createPointCloud(int mapResolution, vector<Surfel> &pc)
+CUTBoolean growPointCloud(int mapResolution, vector<Surfel> &pc, Solid &object, int aoTextureId)
 {
 	int faceId;
 	float alpha, beta, gamma;
@@ -1561,7 +1576,7 @@ CUTBoolean createPointCloud(int mapResolution, vector<Surfel> &pc)
 	}
 
 	// rasterize faces
-	for (unsigned int id=0; id < scn->f.size(); id++)
+	for (unsigned int id = object.faceBegin; id <= object.faceEnd; id++)
 	{
 		vt0 = scn->vt[ scn->f[id].t.x-1 ];
 		vt1 = scn->vt[ scn->f[id].t.y-1 ];
@@ -1614,6 +1629,7 @@ CUTBoolean createPointCloud(int mapResolution, vector<Surfel> &pc)
 				// store surfel
 				point.texelId = i * mapResolution + j;
 				point.faceId = faceId;
+				point.aotId = aoTextureId;
 				pc.push_back( point);
 			}
 		}
@@ -1629,6 +1645,22 @@ CUTBoolean createPointCloud(int mapResolution, vector<Surfel> &pc)
 	free(barycentricCooAndId);
 	free(dilatedBarycentricCooAndId);
 
+	return CUTTrue;
+}
+
+CUTBoolean createPointCloud(int mapResolution, vector<Surfel> &pc)
+{
+	int tid;
+	vector<Solid>::iterator object;
+	
+	tid = 0;
+	object = scn->s.begin();
+	while ( object != scn->s.end() )
+	{
+		growPointCloud( mapResolution, pc, *object, tid++);
+		++object;
+	}
+	
 	return CUTTrue;
 }
 
@@ -2129,7 +2161,7 @@ CUTBoolean loadPointCloud(const char* path, vector<Surfel> &pc, int &mapDim)
 		for (unsigned int i=0; i < n_surfels; i++) {
 			getline(file, s_line);
 			line = s_line.c_str();
-			sscanf( line, "%d %d", &pc[i].texelId, &pc[i].faceId);
+			sscanf( line, "%d %d %d", &pc[i].texelId, &pc[i].faceId, &pc[i].aotId);
 		}
 	} else {
 		return CUTFalse;

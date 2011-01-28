@@ -1,19 +1,19 @@
 newmtl gold
 illum 4
 Kd 0.60 0.50 0.00
-Ka 0.40 0.40 0.40
+Ka 0.40 0.34 0.00
 Tf 1.00 1.00 1.00
 Ni 1.00
 newmtl orange
 illum 4
 Kd 0.60 0.31 0.00
-Ka 0.40 0.40 0.40
+Ka 0.40 0.21 0.00
 Tf 1.00 1.00 1.00
 Ni 1.00
 newmtl red
 illum 4
 Kd 0.60 0.00 0.00
-Ka 0.40 0.40 0.40
+Ka 0.40 0.00 0.00
 Tf 1.00 1.00 1.00
 Ni 1.00
 newmtl white

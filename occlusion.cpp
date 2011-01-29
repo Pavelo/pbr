@@ -1307,12 +1307,13 @@ CUTBoolean preprocessing(int argc, char** argv)
 	}
 	spath = dir + filename;
 
-	acc = (float*) malloc( surfelMapDim * surfelMapDim * sizeof(float));
+	acc = (float*) malloc(0);
 	imgId = (ILuint*) malloc( nSolids * sizeof(ILuint));
 	ilGenImages( nSolids, imgId);
 	
 	for (unsigned int i=0; i < nSolids; i++)
 	{
+		acc = (float*) realloc( (void*)acc, surfelMapDim * surfelMapDim * sizeof(float));
 		for (int j=0; j < surfelMapDim * surfelMapDim; j++) {
 			acc[j] = 1.0;
 		}
@@ -1545,19 +1546,17 @@ CUTBoolean growPointCloud(int mapResolution, vector<Surfel> &pc, Solid &object, 
 	float alpha, beta, gamma;
 	float2 vt0, vt1, vt2, **texelUV;
 	float3 v0, v1, v2, n0, n1, n2;
-	float4 **barycentricCooAndId, **dilatedBarycentricCooAndId;
+	float4 **barycentricCooAndId;
 	float du = 1.0 / (float)mapResolution;
 	Surfel point;
 
 	// allocate mem for 2D arrays
 	texelUV = (float2**) malloc( mapResolution * sizeof(float2*));
 	barycentricCooAndId = (float4**) malloc( mapResolution * sizeof(float4*));
-	dilatedBarycentricCooAndId = (float4**) malloc( mapResolution * sizeof(float4*));
 	for (int i=0; i < mapResolution; i++)
 	{
 		texelUV[i] = (float2*) malloc( mapResolution * sizeof(float2));
 		barycentricCooAndId[i] = (float4*) malloc( mapResolution * sizeof(float4));
-		dilatedBarycentricCooAndId[i] = (float4*) malloc( mapResolution * sizeof(float4));
 	}
 	
 	// place a surfel in the centre of each texel and store its UVs;
@@ -1592,23 +1591,16 @@ CUTBoolean growPointCloud(int mapResolution, vector<Surfel> &pc, Solid &object, 
 		}
 	}
 
-	dilatePatchesBorders( mapResolution,
-						  texelUV,
-						  barycentricCooAndId,
-						  dilatedBarycentricCooAndId,
-						  scn->f,
-						  scn->vt);
-
 	for (int i=0; i < mapResolution; i++)
 	{
 		for (int j=0; j < mapResolution; j++)
 		{
-			faceId = dilatedBarycentricCooAndId[i][j].w;
+			faceId = barycentricCooAndId[i][j].w;
 			if ( faceId != -1 )
 			{
-				alpha = dilatedBarycentricCooAndId[i][j].x;
-				beta  = dilatedBarycentricCooAndId[i][j].y;
-				gamma = dilatedBarycentricCooAndId[i][j].z;
+				alpha = barycentricCooAndId[i][j].x;
+				beta  = barycentricCooAndId[i][j].y;
+				gamma = barycentricCooAndId[i][j].z;
 
 				// interpolate surfel position ( alpha*A + beta*B + gamma*C )
 				v0 = scn->v[ scn->f[ faceId ].v.x-1 ].pos;
@@ -1635,11 +1627,9 @@ CUTBoolean growPointCloud(int mapResolution, vector<Surfel> &pc, Solid &object, 
 	for (int i=0; i < mapResolution; i++) {
 		free(texelUV[i]);
 		free(barycentricCooAndId[i]);
-		free(dilatedBarycentricCooAndId[i]);
 	}
 	free(texelUV);
 	free(barycentricCooAndId);
-	free(dilatedBarycentricCooAndId);
 
 	return CUTTrue;
 }

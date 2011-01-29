@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <iostream>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <math.h>
 #include <vector>
@@ -87,6 +88,7 @@ struct _Solid
 	string name;
 	unsigned int faceBegin;
 	unsigned int faceEnd;
+	GLuint aotId;             // ambient occlusion texture id
 	Material *mat;
 };
 
@@ -119,8 +121,8 @@ struct _Surfel
 	float3 pos;
 	float3 normal;
 	int texelId;
-	int faceId;
-	int aotId;       // ambient occlusion texture id
+	unsigned int faceId;
+	unsigned int solidId;
 	float area;
 };
 
@@ -139,6 +141,7 @@ float light_rotate_x = INIT_LIGHT_ROTATE_X, light_rotate_y = INIT_LIGHT_ROTATE_Y
 float light_orientation[] = {0.0, 0.2, 0.8, 0.0};
 bool altPressed = false;
 GLuint shaderSelected = 0, shaderID[8];
+ILuint *imgId;
 int counter = 0;
 
 // mouse controls
@@ -175,7 +178,7 @@ CUTBoolean preprocessing( int argc, char** argv);
 CUTBoolean run( int argc, char** argv);
 void cleanup();
 void setLighting();
-void setAOTexture();
+void setAOTextures();
 CUTBoolean createPointCloud( int mapResolution, vector<Surfel> &pc);
 CUTBoolean growPointCloud( int mapResolution, vector<Surfel> &pc, Solid &object, int aoTextureId);
 CUTBoolean savePointCloud( vector<Surfel> &pc, const char* path, int mapDim);
@@ -185,7 +188,7 @@ bool pointInTriangle( float2 p, float2 t0, float2 t1, float2 t2, float &beta, fl
 float4 rasterizeCoordinates( int faceId, float2 texelUV, float2 t0, float2 t1, float2 t2, float4 itself);
 float4 rasterizeBorders( int faceId, float2 texelUV, vector<float2> &vt, vector<Face> &f);
 void dilatePatchesBorders( int dim, float2** texelUV, float4** original, float4** dilated, vector<Face> &faces, vector<float2> &vts);
-CUTBoolean occlusion( int passes, vector<Surfel> &pc, float* accessibility);
+CUTBoolean occlusion( int passes, vector<Surfel> &pc, float* accessibility, unsigned int solidId);
 float formFactor_pA( Surfel* receiver, Face* emitterF);
 float surfelShadow( Surfel* receiver, Face* emitter);
 
@@ -403,7 +406,7 @@ CUTBoolean initGL(int argc, char **argv)
 	shaderSelected = shaderID[0];
 	
 	// texturing
-	setAOTexture();
+	setAOTextures();
 
     CUT_CHECK_ERROR_GL();
 
@@ -587,6 +590,7 @@ void cleanup()
     }
 	
 	free(scn);
+	free(imgId);
 }
 
 
@@ -1037,7 +1041,7 @@ void drawSolid(Solid &mesh)
 	glMaterialfv(GL_FRONT, GL_SPECULAR, mesh.mat->specular);
 	glMaterialf(GL_FRONT, GL_SHININESS, mesh.mat->shininess);
 	
-//	glBindTexture(GL_TEXTURE_2D, 0);
+	glBindTexture(GL_TEXTURE_2D, mesh.aotId);
 
 	glBegin(GL_TRIANGLES);
 	for (unsigned int i = mesh.faceBegin; i <= mesh.faceEnd; i++)
@@ -1179,7 +1183,8 @@ CUTBoolean preprocessing(int argc, char** argv)
 	int surfelMapDim;
 
 	// load poly mesh
-	string dir, filename, path, msg;
+	string dir, filename, path, spath, msg;
+	stringstream pathStream;
 	char** cfilename;
 	
 	cfilename = (char**) malloc(sizeof(char));
@@ -1204,26 +1209,6 @@ CUTBoolean preprocessing(int argc, char** argv)
 		cerr << "File \"" << filename << "\" not found!" << endl;
 		return CUTFalse;
 	}
-	
-//	for (unsigned int i=0; i < scn->s.size(); i++)
-//	{
-//		cout << scn->s.at(i).name << " " << scn->s.at(i).mat->name << endl;
-//		printf("\n*****\n%s\n\nambient %f %f %f\ndiffuse %f %f %f\nspecular %f %f %f\nshininess %f\nt%u %s\n",
-//			   scn->s.at(i).mat->name.c_str(),
-//			   scn->s.at(i).mat->ambient[0],
-//			   scn->s.at(i).mat->ambient[1],
-//			   scn->s.at(i).mat->ambient[2],
-//			   scn->s.at(i).mat->diffuse[0],
-//			   scn->s.at(i).mat->diffuse[1],
-//			   scn->s.at(i).mat->diffuse[2],
-//			   scn->s.at(i).mat->specular[0],
-//			   scn->s.at(i).mat->specular[1],
-//			   scn->s.at(i).mat->specular[2],
-//			   scn->s.at(i).mat->shininess,
-//			   (unsigned int)scn->s.at(i).mat->textureId,
-//			   scn->s.at(i).mat->texturePath.c_str()
-//			   );
-//	}
 	
 	if ( scn->vt.empty() )
 	{
@@ -1298,7 +1283,7 @@ CUTBoolean preprocessing(int argc, char** argv)
 	}
 
 	// compute or load ambient occlusion texture
-	ILuint imgId;
+	unsigned int nSolids = scn->s.size();
 	int multipass;
 	float* acc;
 	
@@ -1309,58 +1294,66 @@ CUTBoolean preprocessing(int argc, char** argv)
 	}
 	dir = "/Developer/GPU Computing/C/src/occlusion/occlusionTextures/";
 
-	acc = (float*) malloc( surfelMapDim * surfelMapDim * sizeof(float));
-	for (int i=0; i < surfelMapDim * surfelMapDim; i++) {
-		acc[i] = 1.0;
-	}
-	
-	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "texture"))
+	if ( cutCheckCmdLineFlag(argc, (const char**)argv, "texturePrefix"))
 	{ // occlusion map is passed by argument
-		cutGetCmdLineArgumentstr( argc, (const char**)argv, "texture", cfilename);
+		cutGetCmdLineArgumentstr( argc, (const char**)argv, "texturePrefix", cfilename);
 		filename = *cfilename;
-		path = dir + filename;
 	}
 	else
 	{ // default occlusion map
 		cutGetCmdLineArgumentstr( argc, (const char**)argv, "mesh", cfilename);
 		filename = *cfilename;
-		filename.replace( filename.length()-4, filename.length(), ".tga" );
-		path = dir + filename;
+		filename = filename.substr(0,filename.size()-4);
 	}
+	spath = dir + filename;
 
-	ilGenImages( 1, &imgId);
-	ilBindImage( imgId);
-	if ( !ilLoadImage( path.c_str()) )
-	{ // occlusion map doesn't exist
-		handleDevILErrors();
-		cout << "Computing ambient occlusion... ";
-		cout.flush();
-		occlusion( multipass, pointCloud, acc);
-		cout << "done" << endl;
-		cout << "Saving to \"" << filename << "\"... ";
-		cout.flush();
+	acc = (float*) malloc( surfelMapDim * surfelMapDim * sizeof(float));
+	imgId = (ILuint*) malloc( nSolids * sizeof(ILuint));
+	ilGenImages( nSolids, imgId);
+	
+	for (unsigned int i=0; i < nSolids; i++)
+	{
+		for (int j=0; j < surfelMapDim * surfelMapDim; j++) {
+			acc[j] = 1.0;
+		}
 		
-		ilTexImage (surfelMapDim, // width
-					surfelMapDim, // height
-					1,            // depth
-					1,            // Bpp
-					IL_LUMINANCE, // format
-					IL_FLOAT,     // type
-					acc);         // data
-		// turn image the right direction
-		iluRotate(90);
-		iluMirror();
+		pathStream << spath << i << ".tga";
+		path = pathStream.str();
+		pathStream.str("");
 		
-		ilEnable(IL_FILE_OVERWRITE);
-		ilSave( IL_TGA, path.c_str());
-		handleDevILErrors();
-		cout << "done" << endl;
+		ilBindImage( imgId[i]);
+		if ( !ilLoadImage( path.c_str()) )
+		{ // occlusion map doesn't exist
+			handleDevILErrors();
+			cout << "Computing ambient occlusion... ";
+			cout.flush();
+			occlusion( multipass, pointCloud, acc, i);
+			cout << "done" << endl;
+			cout << "Saving to \"" << filename << i << ".tga" << "\"... ";
+			cout.flush();
+			
+			ilTexImage (surfelMapDim, // width
+						surfelMapDim, // height
+						1,            // depth
+						1,            // Bpp
+						IL_LUMINANCE, // format
+						IL_FLOAT,     // type
+						acc);         // data
+									  // turn image the right direction
+			iluRotate(90);
+			iluMirror();
+			
+			ilEnable(IL_FILE_OVERWRITE);
+			ilSave( IL_TGA, path.c_str());
+			handleDevILErrors();
+			cout << "done" << endl;
+		}
+		else
+		{ // occlusion map exists
+			cout << "Ambient occlusion map \"" << filename << i << ".tga" << "\" loaded correctly" << endl;
+		}
+		ilConvertImage(IL_LUMINANCE, IL_FLOAT);
 	}
-	else
-	{ // occlusion map exists
-		cout << "Ambient occlusion map \"" << filename << "\" loaded correctly" << endl;
-	}
-	ilConvertImage(IL_LUMINANCE, IL_FLOAT);
 
 	free(cfilename);
 	free(acc);
@@ -1407,35 +1400,38 @@ void noiseTexture(float* texel, int dim)
 	}
 }
 
-void setAOTexture()
+void setAOTextures()
 {
-	GLuint tid;
+	unsigned int nSolids = scn->s.size();
+	GLuint tid[nSolids];
 	ILubyte* occImg;
 	
-//	float imgData[size * size];
-//	noiseTexture( imgData, size);
-//	checkersTexture( imgData, size, 0.2, 1.0);
-
-	occImg = ilGetData();
-	glGenTextures (1, &tid);
-	glBindTexture (GL_TEXTURE_2D, tid);
-	glPixelStorei (GL_UNPACK_ALIGNMENT, 1);
-	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
-	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-//	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-//	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexEnvf (GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
-	glTexImage2D(GL_TEXTURE_2D,
-				 0,
-				 GL_LUMINANCE,
-				 ilGetInteger( IL_IMAGE_WIDTH),
-				 ilGetInteger( IL_IMAGE_HEIGHT),
-				 0,
-				 GL_LUMINANCE,
-				 GL_FLOAT,
-				 occImg);
+	glGenTextures (nSolids, tid);
+	
+	for (unsigned int i=0; i < nSolids; i++)
+	{
+		ilBindImage( imgId[i]);
+		occImg = ilGetData();
+		scn->s[i].aotId = tid[i];
+		glBindTexture (GL_TEXTURE_2D, tid[i]);
+		glPixelStorei (GL_UNPACK_ALIGNMENT, 1);
+		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+//		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+//		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexEnvf (GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+		glTexImage2D(GL_TEXTURE_2D,
+					 0,
+					 GL_LUMINANCE,
+					 ilGetInteger( IL_IMAGE_WIDTH),
+					 ilGetInteger( IL_IMAGE_HEIGHT),
+					 0,
+					 GL_LUMINANCE,
+					 GL_FLOAT,
+					 occImg);
+	}
 }
 
 void drawFaceNormals()
@@ -1528,7 +1524,7 @@ CUTBoolean savePointCloud(vector<Surfel> &pc, const char* path, int mapDim)
 			file << pc[i].normal.x<<" "<<pc[i].normal.y<<" "<<pc[i].normal.z << endl;
 		}
 		for (unsigned int i=0; i < pc.size(); i++) {
-			file << pc[i].texelId <<" "<< pc[i].faceId <<" "<< pc[i].aotId << endl;
+			file << pc[i].texelId <<" "<< pc[i].faceId <<" "<< pc[i].solidId << endl;
 		}
 		
 	} else {
@@ -1543,7 +1539,7 @@ CUTBoolean savePointCloud(vector<Surfel> &pc, const char* path, int mapDim)
 	return CUTTrue;
 }
 
-CUTBoolean growPointCloud(int mapResolution, vector<Surfel> &pc, Solid &object, int aoTextureId)
+CUTBoolean growPointCloud(int mapResolution, vector<Surfel> &pc, Solid &object, int solidId)
 {
 	int faceId;
 	float alpha, beta, gamma;
@@ -1629,7 +1625,7 @@ CUTBoolean growPointCloud(int mapResolution, vector<Surfel> &pc, Solid &object, 
 				// store surfel
 				point.texelId = i * mapResolution + j;
 				point.faceId = faceId;
-				point.aotId = aoTextureId;
+				point.solidId = solidId;
 				pc.push_back( point);
 			}
 		}
@@ -1650,14 +1646,14 @@ CUTBoolean growPointCloud(int mapResolution, vector<Surfel> &pc, Solid &object, 
 
 CUTBoolean createPointCloud(int mapResolution, vector<Surfel> &pc)
 {
-	int tid;
+	int sid;
 	vector<Solid>::iterator object;
 	
-	tid = 0;
+	sid = 0;
 	object = scn->s.begin();
 	while ( object != scn->s.end() )
 	{
-		growPointCloud( mapResolution, pc, *object, tid++);
+		growPointCloud( mapResolution, pc, *object, sid++);
 		++object;
 	}
 	
@@ -2081,7 +2077,7 @@ float surfelShadow(Surfel* receiver, Face* emitter)
 	}
 }
 
-CUTBoolean occlusion(int passes, vector<Surfel> &pc, float* accessibility)
+CUTBoolean occlusion(int passes, vector<Surfel> &pc, float* accessibility, unsigned int solidId)
 {
 	float sshadow_total, **ss_global;
 	
@@ -2094,23 +2090,26 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc, float* accessibility)
 	{
 		for (unsigned int i=0; i < pc.size(); i++)
 		{
-			sshadow_total = .0f;
-			for (unsigned int j=0; j < scn->f.size(); j++)
+			if ( pc[i].solidId == solidId )
 			{
-				if ( pc[i].faceId != (int)j )
-				{ // if surfel lays on a face except the current face
-					if (k == 1)
-					{
-						ss_global[i][j] = surfelShadow( &pc[i], &scn->f[j]);
-						sshadow_total += ss_global[i][j];
-					}
-					else
-					{
-						sshadow_total += ss_global[i][j] * accessibility[ pc[i].texelId ];
+				sshadow_total = .0f;
+				for (unsigned int j=0; j < scn->f.size(); j++)
+				{
+					if ( pc[i].faceId != j )
+					{ // if surfel lays on a face except the current face
+						if (k == 1)
+						{
+							ss_global[i][j] = surfelShadow( &pc[i], &scn->f[j]);
+							sshadow_total += ss_global[i][j];
+						}
+						else
+						{
+							sshadow_total += ss_global[i][j] * accessibility[ pc[i].texelId ];
+						}
 					}
 				}
+				accessibility[ pc[i].texelId ] = 1.f - sshadow_total;
 			}
-			accessibility[ pc[i].texelId ] = 1.f - sshadow_total;
 		}
 	}
 	
@@ -2161,7 +2160,7 @@ CUTBoolean loadPointCloud(const char* path, vector<Surfel> &pc, int &mapDim)
 		for (unsigned int i=0; i < n_surfels; i++) {
 			getline(file, s_line);
 			line = s_line.c_str();
-			sscanf( line, "%d %d %d", &pc[i].texelId, &pc[i].faceId, &pc[i].aotId);
+			sscanf( line, "%d %d %d", &pc[i].texelId, &pc[i].faceId, &pc[i].solidId);
 		}
 	} else {
 		return CUTFalse;

@@ -79,6 +79,7 @@ struct _Face
 	uint3 t;
 	uint3 n;
 	float area;
+	float tArea;
 	float3 centroid;
 	float3 normal;
 };
@@ -90,6 +91,8 @@ struct _Solid
 	unsigned int faceEnd;
 	GLuint aotId;             // ambient occlusion texture id
 	Material *mat;
+	float surfaceArea;
+	float textureArea;
 };
 
 struct _Scene
@@ -179,10 +182,13 @@ CUTBoolean run( int argc, char** argv);
 void cleanup();
 void setLighting();
 void setAOTextures();
-CUTBoolean createPointCloud( int mapResolution, vector<Surfel> &pc);
+float faceArea(float2 v0, float2 v1, float2 v2);
+float faceArea(float3 v0, float3 v1, float3 v2);
+int balanceMapResolution(int desiredMapResolution, float solidSurfaceArea, float solidTextureArea, float m_solidSuraceArea, float m_solidTextureArea);
+CUTBoolean createPointCloud( int desiredMapResolution, int *balancedMapResolution, vector<Surfel> &pc);
 CUTBoolean growPointCloud( int mapResolution, vector<Surfel> &pc, Solid &object, int aoTextureId);
-CUTBoolean savePointCloud( vector<Surfel> &pc, const char* path, int mapDim);
-CUTBoolean loadPointCloud( const char* path, vector<Surfel> &pc, int &mapDim);
+CUTBoolean savePointCloud( vector<Surfel> &pc, const char* path, int *balancedMapResolution);
+CUTBoolean loadPointCloud( const char* path, vector<Surfel> &pc, int *balancedMapResolution);
 float2 texelCentre( int dx, int dy, float du);
 bool pointInTriangle( float2 p, float2 t0, float2 t1, float2 t2, float &beta, float &gamma);
 float4 rasterizeCoordinates( int faceId, float2 texelUV, float2 t0, float2 t1, float2 t2, float4 itself);
@@ -1180,7 +1186,7 @@ float round(float n)
 
 CUTBoolean preprocessing(int argc, char** argv)
 {
-	int surfelMapDim;
+	int surfelMapDim, *balancedSurfelMapDim;
 
 	// load poly mesh
 	string dir, filename, path, spath, msg;
@@ -1202,7 +1208,7 @@ CUTBoolean preprocessing(int argc, char** argv)
 	}
 	filename = *cfilename;
 	path = dir + filename;
-	cout << "Loading mesh... ";
+	cout << "Loading scene... ";
 	cout.flush();
 	if ( !loadOBJ(path.c_str()) )
 	{
@@ -1230,6 +1236,7 @@ CUTBoolean preprocessing(int argc, char** argv)
 	} else {
 		surfelMapDim = 64;
 	}
+	balancedSurfelMapDim = (int*) malloc( scn->s.size() * sizeof(int));
 
 	cout << "Loading surfels cloud... ";
 	cout.flush();
@@ -1240,7 +1247,7 @@ CUTBoolean preprocessing(int argc, char** argv)
 		filename = *cfilename;
 		path = dir + filename;
 
-		if ( !loadPointCloud(path.c_str(), pointCloud, surfelMapDim))
+		if ( !loadPointCloud( path.c_str(), pointCloud, balancedSurfelMapDim))
 		{ // point cloud doesn't exist
 			do {
 				cout << "File \"" << filename << "\" does not exist! Create it? ";
@@ -1248,9 +1255,9 @@ CUTBoolean preprocessing(int argc, char** argv)
 				
 				if (msg[0] == 'y' || msg[0] == 'Y') {
 					cout << "Creating surfels cloud..." << endl;
-					createPointCloud( surfelMapDim, pointCloud);
+					createPointCloud( surfelMapDim, balancedSurfelMapDim, pointCloud);
 					cout << "Saving to \"" << filename << "\"..." << endl;
-					savePointCloud( pointCloud, path.c_str(), surfelMapDim);
+					savePointCloud( pointCloud, path.c_str(), balancedSurfelMapDim);
 				} else if (msg[0] == 'n' || msg[0] == 'N') {
 					cerr << "Cannot load any surfel cloud. Aborting..." << endl;
 					return CUTFalse;
@@ -1269,12 +1276,12 @@ CUTBoolean preprocessing(int argc, char** argv)
 		filename.replace( filename.length()-4, filename.length(), ".sfc" );
 		path = dir + filename;
 		
-		if ( !loadPointCloud( path.c_str(), pointCloud, surfelMapDim))
+		if ( !loadPointCloud( path.c_str(), pointCloud, balancedSurfelMapDim))
 		{ // point cloud doesn't exist
 			cout << "Creating surfels cloud... " << endl;
-			createPointCloud( surfelMapDim, pointCloud);
+			createPointCloud( surfelMapDim, balancedSurfelMapDim, pointCloud);
 			cout << "Saving to \"" << filename << "\"..." << endl;
-			savePointCloud( pointCloud, path.c_str(), surfelMapDim);
+			savePointCloud( pointCloud, path.c_str(), balancedSurfelMapDim);
 		}
 		else
 		{ // point cloud exists
@@ -1313,8 +1320,8 @@ CUTBoolean preprocessing(int argc, char** argv)
 	
 	for (unsigned int i=0; i < nSolids; i++)
 	{
-		acc = (float*) realloc( (void*)acc, surfelMapDim * surfelMapDim * sizeof(float));
-		for (int j=0; j < surfelMapDim * surfelMapDim; j++) {
+		acc = (float*) realloc( (void*)acc, balancedSurfelMapDim[i] * balancedSurfelMapDim[i] * sizeof(float));
+		for (int j=0; j < balancedSurfelMapDim[i] * balancedSurfelMapDim[i]; j++) {
 			acc[j] = 1.0;
 		}
 		
@@ -1333,14 +1340,14 @@ CUTBoolean preprocessing(int argc, char** argv)
 			cout << "Saving to \"" << filename << i << ".tga" << "\"... ";
 			cout.flush();
 			
-			ilTexImage (surfelMapDim, // width
-						surfelMapDim, // height
-						1,            // depth
-						1,            // Bpp
-						IL_LUMINANCE, // format
-						IL_FLOAT,     // type
-						acc);         // data
-									  // turn image the right direction
+			ilTexImage (balancedSurfelMapDim[i], // width
+						balancedSurfelMapDim[i], // height
+						1,                       // depth
+						1,                       // Bpp
+						IL_LUMINANCE,            // format
+						IL_FLOAT,                // type
+						acc);                    // data
+			// turn image the right direction
 			iluRotate(90);
 			iluMirror();
 			
@@ -1358,6 +1365,7 @@ CUTBoolean preprocessing(int argc, char** argv)
 
 	free(cfilename);
 	free(acc);
+	free(balancedSurfelMapDim);
 	
 	return CUTTrue;
 }
@@ -1505,7 +1513,7 @@ float3 reverseVector(float3 v)
 	return make_float3( -v.x, -v.y, -v.z);
 }
 
-CUTBoolean savePointCloud(vector<Surfel> &pc, const char* path, int mapDim)
+CUTBoolean savePointCloud(vector<Surfel> &pc, const char* path, int *balancedMapResolution)
 {
 	ofstream file;
 	string line;
@@ -1517,7 +1525,10 @@ CUTBoolean savePointCloud(vector<Surfel> &pc, const char* path, int mapDim)
 		
 		file << "SFC" << endl;
 		file << pc.size() << endl;
-		file << mapDim << endl;
+		for (unsigned int i=0; i < scn->s.size(); i++)
+		{
+			file << balancedMapResolution[i] << endl;
+		}
 		for (unsigned int i=0; i < pc.size(); i++) {
 			file << pc[i].pos.x<<" "<<pc[i].pos.y<<" "<<pc[i].pos.z << endl;
 		}
@@ -1634,15 +1645,85 @@ CUTBoolean growPointCloud(int mapResolution, vector<Surfel> &pc, Solid &object, 
 	return CUTTrue;
 }
 
-CUTBoolean createPointCloud(int mapResolution, vector<Surfel> &pc)
+float faceArea(float3 v0, float3 v1, float3 v2)
 {
-	int sid;
+	float s, a, b, c;
+	float3 va, vb, vc;
+	
+	// get the vectors along edges
+	va = sub( v0, v1);
+	vb = sub( v0, v2);
+	vc = sub( v1, v2);
+	
+	// get vectors length
+	a = sqrt( dot( va, va));
+	b = sqrt( dot( vb, vb));
+	c = sqrt( dot( vc, vc));
+	
+	// get semiperimeter
+	s = (a + b + c) * 0.5;
+	
+	// get area with Heron's formula
+	return sqrt( s * (s-a) * (s-b) * (s-c) );
+}
+
+float faceArea(float2 v0, float2 v1, float2 v2)
+{
+	return faceArea(make_float3(v0.x, v0.y, 0.0), make_float3(v1.x, v1.y, 0.0), make_float3(v2.x, v2.y, 0.0));
+}
+
+int balanceMapResolution(int desiredMapResolution,
+						 float solidSurfaceArea,
+						 float solidTextureArea,
+						 float m_solidSuraceArea,
+						 float m_solidTextureArea)
+{
+	float ct, cw;
+	
+	ct = m_solidTextureArea / solidTextureArea;
+	cw = solidSurfaceArea / m_solidSuraceArea;
+	
+	return (int)round( desiredMapResolution * sqrt( ct * cw));
+}
+
+CUTBoolean createPointCloud(int desiredMapResolution, int *balancedMapResolution, vector<Surfel> &pc)
+{
+	int sid, mapResolution;
+	float m_sArea, sArea, m_tArea, tArea;
 	vector<Solid>::iterator object;
+	
+	m_sArea = m_tArea = 0.0;
+	object = scn->s.begin();
+	while ( object != scn->s.end() )
+	{
+		sArea = tArea = 0.0;
+		for (unsigned int i = object->faceBegin; i <= object->faceEnd; i++)
+		{
+			scn->f[i].area = faceArea(scn->v[ scn->f[i].v.x-1 ].pos,
+									  scn->v[ scn->f[i].v.y-1 ].pos,
+									  scn->v[ scn->f[i].v.z-1 ].pos);
+			
+			scn->f[i].tArea = faceArea(scn->vt[ scn->f[i].t.x-1 ],
+									   scn->vt[ scn->f[i].t.y-1 ],
+									   scn->vt[ scn->f[i].t.z-1 ]);
+			sArea += scn->f[i].area;
+			tArea += scn->f[i].tArea;
+		}
+		object->surfaceArea = sArea;
+		object->textureArea = tArea;
+		m_sArea += sArea;
+		m_tArea += tArea;
+		++object;
+	}
+	m_sArea /= (float) scn->s.size();
+	m_tArea /= (float) scn->s.size();
 	
 	sid = 0;
 	object = scn->s.begin();
 	while ( object != scn->s.end() )
 	{
+		mapResolution = balanceMapResolution( desiredMapResolution, object->surfaceArea, object->textureArea, m_sArea, m_tArea);
+		balancedMapResolution[sid] = mapResolution;
 		growPointCloud( mapResolution, pc, *object, sid++);
 		++object;
 	}
@@ -2111,7 +2192,7 @@ CUTBoolean occlusion(int passes, vector<Surfel> &pc, float* accessibility, unsig
 	return CUTTrue;
 }
 
-CUTBoolean loadPointCloud(const char* path, vector<Surfel> &pc, int &mapDim)
+CUTBoolean loadPointCloud(const char* path, vector<Surfel> &pc, int *balancedMapResolution)
 {
 	string s_line;
 	const char* line;
@@ -2126,8 +2207,11 @@ CUTBoolean loadPointCloud(const char* path, vector<Surfel> &pc, int &mapDim)
 		{
 			getline(file, s_line);
 			n_surfels = atoi(s_line.c_str());
-			getline(file, s_line);
-			mapDim = atoi(s_line.c_str());
+			for (unsigned int i=0; i < scn->s.size(); i++)
+			{
+				getline(file, s_line);
+				balancedMapResolution[i] = atoi(s_line.c_str());
+			}
 		}
 		else {
 			cerr << "Wrong file type!" << endl;

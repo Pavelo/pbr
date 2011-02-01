@@ -1820,7 +1820,7 @@ bool pointInTriangle(float2 p, float2 t0, float2 t1, float2 t2, float &beta, flo
 	gamma = (dot11 * dot02 - dot01 * dot12) * invDenom;
 
 	// Check if point is in triangle
-	return (beta > 0) && (gamma > 0) && (beta + gamma <= 1);
+	return (beta >= 0) && (gamma >= 0) && (beta + gamma <= 1);
 }
 
 float4 rasterizeCoordinates(int faceId, float2 texelUV, float2 t0, float2 t1, float2 t2, float4 itself)

@@ -182,17 +182,18 @@ CUTBoolean run( int argc, char** argv);
 void cleanup();
 void setLighting();
 void setAOTextures();
-float faceArea(float2 v0, float2 v1, float2 v2);
-float faceArea(float3 v0, float3 v1, float3 v2);
-int balanceMapResolution(int desiredMapResolution, float solidSurfaceArea, float solidTextureArea, float m_solidSuraceArea, float m_solidTextureArea);
-CUTBoolean createPointCloud( int desiredMapResolution, int *balancedMapResolution, vector<Surfel> &pc);
-CUTBoolean growPointCloud( int mapResolution, vector<Surfel> &pc, Solid &object, int aoTextureId);
+float faceArea( float2 v0, float2 v1, float2 v2);
+float faceArea( float3 v0, float3 v1, float3 v2);
+int balanceMapResolution( int desiredMapResolution, float solidSurfaceArea, float solidTextureArea, float m_solidSuraceArea, float m_solidTextureArea);
+CUTBoolean createPointCloud( int desiredMapResolution, int *balancedMapResolution, vector<Surfel> &pc, int ***fid);
+CUTBoolean growPointCloud( int mapResolution, vector<Surfel> &pc, Solid &object, int aoTextureId, int **fid);
 CUTBoolean savePointCloud( vector<Surfel> &pc, const char* path, int *balancedMapResolution);
 CUTBoolean loadPointCloud( const char* path, vector<Surfel> &pc, int *balancedMapResolution);
 float2 texelCentre( int dx, int dy, float du);
 bool pointInTriangle( float2 p, float2 t0, float2 t1, float2 t2, float &beta, float &gamma);
 float4 rasterizeCoordinates( int faceId, float2 texelUV, float2 t0, float2 t1, float2 t2, float4 itself);
 float4 rasterizeBorders( int faceId, float2 texelUV, vector<float2> &vt, vector<Face> &f);
+void dilatePatchesBorders( int textureDim, int **rasterizedFaceId, float *originalTexture);
 void dilatePatchesBorders( int dim, float2** texelUV, float4** original, float4** dilated, vector<Face> &faces, vector<float2> &vts);
 CUTBoolean occlusion( int passes, vector<Surfel> &pc, float* accessibility, unsigned int solidId);
 float formFactor_pA( Surfel* receiver, Face* emitterF);
@@ -1186,7 +1187,7 @@ float round(float n)
 
 CUTBoolean preprocessing(int argc, char** argv)
 {
-	int surfelMapDim, *balancedSurfelMapDim;
+	int surfelMapDim, *balancedSurfelMapDim, ***rasterizedFaceId;
 
 	// load poly mesh
 	string dir, filename, path, spath, msg;
@@ -1231,12 +1232,14 @@ CUTBoolean preprocessing(int argc, char** argv)
 	cout << "done" << endl;
 	
 	// create or load point cloud
+	unsigned int nSolids = scn->s.size();
 	if ( cutCheckCmdLineFlag( argc, (const char**)argv, "map")) {
 		cutGetCmdLineArgumenti( argc, (const char**)argv, "map", &surfelMapDim);
 	} else {
 		surfelMapDim = 64;
 	}
 	balancedSurfelMapDim = (int*) malloc( scn->s.size() * sizeof(int));
+	rasterizedFaceId = (int***) malloc( nSolids * sizeof(int**));
 
 	cout << "Loading surfels cloud... ";
 	cout.flush();
@@ -1255,7 +1258,7 @@ CUTBoolean preprocessing(int argc, char** argv)
 				
 				if (msg[0] == 'y' || msg[0] == 'Y') {
 					cout << "Creating surfels cloud..." << endl;
-					createPointCloud( surfelMapDim, balancedSurfelMapDim, pointCloud);
+					createPointCloud( surfelMapDim, balancedSurfelMapDim, pointCloud, rasterizedFaceId);
 					cout << "Saving to \"" << filename << "\"..." << endl;
 					savePointCloud( pointCloud, path.c_str(), balancedSurfelMapDim);
 				} else if (msg[0] == 'n' || msg[0] == 'N') {
@@ -1279,7 +1282,7 @@ CUTBoolean preprocessing(int argc, char** argv)
 		if ( !loadPointCloud( path.c_str(), pointCloud, balancedSurfelMapDim))
 		{ // point cloud doesn't exist
 			cout << "Creating surfels cloud... " << endl;
-			createPointCloud( surfelMapDim, balancedSurfelMapDim, pointCloud);
+			createPointCloud( surfelMapDim, balancedSurfelMapDim, pointCloud, rasterizedFaceId);
 			cout << "Saving to \"" << filename << "\"..." << endl;
 			savePointCloud( pointCloud, path.c_str(), balancedSurfelMapDim);
 		}
@@ -1290,7 +1293,6 @@ CUTBoolean preprocessing(int argc, char** argv)
 	}
 
 	// compute or load ambient occlusion texture
-	unsigned int nSolids = scn->s.size();
 	int multipass;
 	float* acc;
 	
@@ -1336,6 +1338,7 @@ CUTBoolean preprocessing(int argc, char** argv)
 			cout << "Computing ambient occlusion... ";
 			cout.flush();
 			occlusion( multipass, pointCloud, acc, i);
+			dilatePatchesBorders( balancedSurfelMapDim[i], rasterizedFaceId[i], acc);
 			cout << "done" << endl;
 			cout << "Saving to \"" << filename << i << ".tga" << "\"... ";
 			cout.flush();
@@ -1363,9 +1366,18 @@ CUTBoolean preprocessing(int argc, char** argv)
 		ilConvertImage(IL_LUMINANCE, IL_FLOAT);
 	}
 
+	// deallocate mem
+	for (unsigned int i=0; i < nSolids; i++)
+	{
+		for (int j=0; j < balancedSurfelMapDim[i]; j++)
+		{
+			free(rasterizedFaceId[i][j]);
+		}
+	}
 	free(cfilename);
 	free(acc);
 	free(balancedSurfelMapDim);
+	free(rasterizedFaceId);
 	
 	return CUTTrue;
 }
@@ -1551,7 +1563,7 @@ CUTBoolean savePointCloud(vector<Surfel> &pc, const char* path, int *balancedMap
 	return CUTTrue;
 }
 
-CUTBoolean growPointCloud(int mapResolution, vector<Surfel> &pc, Solid &object, int solidId)
+CUTBoolean growPointCloud(int mapResolution, vector<Surfel> &pc, Solid &object, int solidId, int **fid)
 {
 	int faceId;
 	float alpha, beta, gamma;
@@ -1564,10 +1576,12 @@ CUTBoolean growPointCloud(int mapResolution, vector<Surfel> &pc, Solid &object, 
 	// allocate mem for 2D arrays
 	texelUV = (float2**) malloc( mapResolution * sizeof(float2*));
 	barycentricCooAndId = (float4**) malloc( mapResolution * sizeof(float4*));
+	fid = (int**) malloc( mapResolution * sizeof(int*));
 	for (int i=0; i < mapResolution; i++)
 	{
 		texelUV[i] = (float2*) malloc( mapResolution * sizeof(float2));
 		barycentricCooAndId[i] = (float4*) malloc( mapResolution * sizeof(float4));
+		fid[i] = (int*) malloc( mapResolution * sizeof(int));
 	}
 	
 	// place a surfel in the centre of each texel and store its UVs;
@@ -1606,7 +1620,7 @@ CUTBoolean growPointCloud(int mapResolution, vector<Surfel> &pc, Solid &object, 
 	{
 		for (int j=0; j < mapResolution; j++)
 		{
-			faceId = barycentricCooAndId[i][j].w;
+			faceId = fid[i][j] = barycentricCooAndId[i][j].w;
 			if ( faceId != -1 )
 			{
 				alpha = barycentricCooAndId[i][j].x;
@@ -1686,7 +1700,7 @@ int balanceMapResolution(int desiredMapResolution,
 	return (int)round( desiredMapResolution * sqrt( ct * cw));
 }
 
-CUTBoolean createPointCloud(int desiredMapResolution, int *balancedMapResolution, vector<Surfel> &pc)
+CUTBoolean createPointCloud(int desiredMapResolution, int *balancedMapResolution, vector<Surfel> &pc, int ***fid)
 {
 	int sid, mapResolution;
 	float m_sArea, sArea, m_tArea, tArea;
@@ -1724,11 +1738,90 @@ CUTBoolean createPointCloud(int desiredMapResolution, int *balancedMapResolution
 	{
 		mapResolution = balanceMapResolution( desiredMapResolution, object->surfaceArea, object->textureArea, m_sArea, m_tArea);
 		balancedMapResolution[sid] = mapResolution;
-		growPointCloud( mapResolution, pc, *object, sid++);
+		growPointCloud( mapResolution, pc, *object, sid, fid[sid]);
+		sid++;
 		++object;
 	}
 	
 	return CUTTrue;
+}
+
+void dilatePatchesBorders(int textureDim, int **rasterizedFaceId, float *originalTexture)
+{
+	int nexti, nextj, previ, prevj;
+	float **faceMask, **dilatedMask;
+	
+	// allocate mem
+	faceMask = (float**) malloc( textureDim * sizeof(float*));
+	dilatedMask = (float**) malloc( textureDim * sizeof(float*));
+	for (int i=0; i < textureDim; i++)
+	{
+		faceMask[i] = (float*) malloc( textureDim * sizeof(float));
+		dilatedMask[i] = (float*) malloc( textureDim * sizeof(float));
+	}
+	
+	// create mask: white faces on black background
+	for (int i=0; i < textureDim; i++)
+	{
+		for (int j=0; j < textureDim; j++)
+		{
+			faceMask[i][j] = ( rasterizedFaceId[i][j] > -1 ) ? 1.0 : 0.0;
+		}
+	}
+	
+	// create mask: dilate white by 1 pixel border
+	nexti = nextj = previ = prevj = 0;
+	for (int i=0; i < textureDim; i++)
+	{
+		nexti = (i+1) % textureDim;
+		previ = (textureDim+i-1) % textureDim;
+		for (int j=0; j < textureDim; j++)
+		{
+			nextj = (j+1) % textureDim;
+			prevj = (textureDim+j-1) % textureDim;
+			if ( faceMask[i][j] == 1.0 )
+			{
+				dilatedMask[nexti][j] = 1.0;
+				dilatedMask[previ][j] = 1.0;
+				dilatedMask[i][nextj] = 1.0;
+				dilatedMask[i][prevj] = 1.0;
+				dilatedMask[nexti][nextj] = 1.0;
+				dilatedMask[nexti][prevj] = 1.0;
+				dilatedMask[previ][nextj] = 1.0;
+				dilatedMask[previ][prevj] = 1.0;
+			}
+		}
+	}
+	
+	// masks difference
+	for (int i=0; i < textureDim; i++)
+	{
+		for (int j=0; j < textureDim; j++)
+		{
+			dilatedMask[i][j] -= faceMask[i][j];
+		}
+	}
+	
+	// apply interpolation mask
+	for (int i=0; i < textureDim; i++)
+	{
+		for (int j=0; j < textureDim; j++)
+		{
+			if ( dilatedMask[i][j] == 1.0 )
+			{
+				originalTexture[ i * textureDim + j ] = 1.0;
+			}
+		}
+	}
+	
+	// deallocate mem
+	for (int i=0; i < textureDim; i++)
+	{
+		free(faceMask[i]);
+		free(dilatedMask[i]);
+	}
+	free(faceMask);
+	free(dilatedMask);
 }
 
 void dilatePatchesBorders(int dim, float2** texelUV, float4** original, float4** dilated, vector<Face> &faces, vector<float2> &vts)

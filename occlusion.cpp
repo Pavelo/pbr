@@ -194,7 +194,6 @@ bool pointInTriangle( float2 p, float2 t0, float2 t1, float2 t2, float &beta, fl
 float4 rasterizeCoordinates( int faceId, float2 texelUV, float2 t0, float2 t1, float2 t2, float4 itself);
 float4 rasterizeBorders( int faceId, float2 texelUV, vector<float2> &vt, vector<Face> &f);
 void dilatePatchesBorders( int textureDim, int **rasterizedFaceId, float *originalTexture);
-void dilatePatchesBorders( int dim, float2** texelUV, float4** original, float4** dilated, vector<Face> &faces, vector<float2> &vts);
 CUTBoolean occlusion( int passes, vector<Surfel> &pc, float* accessibility, unsigned int solidId);
 float formFactor_pA( Surfel* receiver, Face* emitterF);
 float surfelShadow( Surfel* receiver, Face* emitter);
@@ -1367,13 +1366,13 @@ CUTBoolean preprocessing(int argc, char** argv)
 	}
 
 	// deallocate mem
-	for (unsigned int i=0; i < nSolids; i++)
-	{
-		for (int j=0; j < balancedSurfelMapDim[i]; j++)
-		{
-			free(rasterizedFaceId[i][j]);
-		}
-	}
+//	for (unsigned int i=0; i < nSolids; i++)
+//	{
+//		for (int j=0; j < balancedSurfelMapDim[i]; j++)
+//		{
+//			free(rasterizedFaceId[i][j]);
+//		}
+//	}
 	free(cfilename);
 	free(acc);
 	free(balancedSurfelMapDim);
@@ -1576,12 +1575,10 @@ CUTBoolean growPointCloud(int mapResolution, vector<Surfel> &pc, Solid &object, 
 	// allocate mem for 2D arrays
 	texelUV = (float2**) malloc( mapResolution * sizeof(float2*));
 	barycentricCooAndId = (float4**) malloc( mapResolution * sizeof(float4*));
-	fid = (int**) malloc( mapResolution * sizeof(int*));
 	for (int i=0; i < mapResolution; i++)
 	{
 		texelUV[i] = (float2*) malloc( mapResolution * sizeof(float2));
 		barycentricCooAndId[i] = (float4*) malloc( mapResolution * sizeof(float4));
-		fid[i] = (int*) malloc( mapResolution * sizeof(int));
 	}
 	
 	// place a surfel in the centre of each texel and store its UVs;
@@ -1822,72 +1819,6 @@ void dilatePatchesBorders(int textureDim, int **rasterizedFaceId, float *origina
 	}
 	free(faceMask);
 	free(dilatedMask);
-}
-
-void dilatePatchesBorders(int dim, float2** texelUV, float4** original, float4** dilated, vector<Face> &faces, vector<float2> &vts)
-{
-	int texelFaceId, nexti, nextj, previ, prevj;
-	
-	// copy original data to dilated
-	for (int i=0; i < dim; i++)
-		for (int j=0; j < dim; j++)
-			dilated[i][j] = original[i][j];
-	
-	// first pass: border dilation along horizontal and vertical axis
-	texelFaceId = -1;
-	nexti = nextj = previ = prevj = 0;
-	for (int i=0; i < dim; i++)
-	{
-		nexti = (i+1) % dim;
-		previ = (dim+i-1) % dim;
-		for (int j=0; j < dim; j++)
-		{
-			nextj = (j+1) % dim;
-			prevj = (dim+j-1) % dim;
-			texelFaceId = original[i][j].w;
-			if ( texelFaceId != -1 )
-			{
-				if ( original[nexti][j].w == -1 )
-					dilated[nexti][j] = rasterizeBorders( texelFaceId, texelUV[nexti][j], vts, faces);
-				
-				if ( original[previ][j].w == -1 )
-					dilated[previ][j] = rasterizeBorders( texelFaceId, texelUV[previ][j], vts, faces);
-				
-				if ( original[i][nextj].w == -1 )
-					dilated[i][nextj] = rasterizeBorders( texelFaceId, texelUV[i][nextj], vts, faces);
-
-				if ( original[i][prevj].w == -1 )
-					dilated[i][prevj] = rasterizeBorders( texelFaceId, texelUV[i][prevj], vts, faces);
-			}
-		}
-	}
-	
-	// second pass: border dilation along sidelong axis
-	for (int i=0; i < dim; i++)
-	{
-		nexti = (i+1) % dim;
-		previ = (dim+i-1) % dim;
-		for (int j=0; j < dim; j++)
-		{
-			nextj = (j+1) % dim;
-			prevj = (dim+j-1) % dim;
-			texelFaceId = original[i][j].w;
-			if ( texelFaceId != -1 )
-			{
-				if ( dilated[nexti][nextj].w == -1 )
-					dilated[nexti][nextj] = rasterizeBorders( texelFaceId, texelUV[nexti][nextj], vts, faces);
-				
-				if ( dilated[nexti][prevj].w == -1 )
-					dilated[nexti][prevj] = rasterizeBorders( texelFaceId, texelUV[nexti][prevj], vts, faces);
-				
-				if ( dilated[previ][nextj].w == -1 )
-					dilated[previ][nextj] = rasterizeBorders( texelFaceId, texelUV[previ][nextj], vts, faces);
-				
-				if ( dilated[previ][prevj].w == -1 )
-					dilated[previ][prevj] = rasterizeBorders( texelFaceId, texelUV[previ][prevj], vts, faces);
-			}
-		}
-	}
 }
 
 bool pointInTriangle(float2 p, float2 t0, float2 t1, float2 t2, float &beta, float &gamma)

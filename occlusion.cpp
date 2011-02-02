@@ -193,7 +193,7 @@ float2 texelCentre( int dx, int dy, float du);
 bool pointInTriangle( float2 p, float2 t0, float2 t1, float2 t2, float &beta, float &gamma);
 float4 rasterizeCoordinates( int faceId, float2 texelUV, float2 t0, float2 t1, float2 t2, float4 itself);
 float4 rasterizeBorders( int faceId, float2 texelUV, vector<float2> &vt, vector<Face> &f);
-void dilatePatchesBorders( int textureDim, int **rasterizedFaceId, float *originalTexture);
+void dilatePatchesBorders( unsigned int currentMap, int textureDim, float *originalTexture);
 CUTBoolean occlusion( int passes, vector<Surfel> &pc, float* accessibility, unsigned int solidId);
 float formFactor_pA( Surfel* receiver, Face* emitterF);
 float surfelShadow( Surfel* receiver, Face* emitter);
@@ -1336,7 +1336,7 @@ CUTBoolean preprocessing(int argc, char** argv)
 			cout << "Computing ambient occlusion... ";
 			cout.flush();
 			occlusion( multipass, pointCloud, acc, i);
-			dilatePatchesBorders( balancedSurfelMapDim[i], rasterizedFaceId[i], acc);
+			dilatePatchesBorders( i, balancedSurfelMapDim[i], acc);
 			cout << "done" << endl;
 			cout << "Saving to \"" << filename << i << ".tga" << "\"... ";
 			cout.flush();
@@ -1732,12 +1732,13 @@ CUTBoolean createPointCloud(int desiredMapResolution, int *balancedMapResolution
 	return CUTTrue;
 }
 
-void dilatePatchesBorders(int textureDim, int **rasterizedFaceId, float *originalTexture)
+void dilatePatchesBorders(unsigned int currentMap, int textureDim, float *originalTexture)
 {
-	int nexti, nextj, previ, prevj;
-	float **faceMask, **dilatedMask;
+	int nexti, nextj, previ, prevj, *rasterizedFaceId;
+	float **faceMask, **dilatedMask, pixelSum;
 	
 	// allocate mem
+	rasterizedFaceId = (int*) malloc( textureDim * textureDim * sizeof(int));
 	faceMask = (float**) malloc( textureDim * sizeof(float*));
 	dilatedMask = (float**) malloc( textureDim * sizeof(float*));
 	for (int i=0; i < textureDim; i++)
@@ -1746,16 +1747,29 @@ void dilatePatchesBorders(int textureDim, int **rasterizedFaceId, float *origina
 		dilatedMask[i] = (float*) malloc( textureDim * sizeof(float));
 	}
 	
+	// recreate face id map
+	for (int i=0; i < textureDim * textureDim; i++)
+	{
+		rasterizedFaceId[i] = -1;
+	}
+	for (unsigned int i=0; i < pointCloud.size(); i++)
+	{
+		if ( pointCloud[i].solidId == currentMap )
+		{
+			rasterizedFaceId[ pointCloud[i].texelId ] = pointCloud[i].faceId;
+		}
+	}
+	
 	// create mask: white faces on black background
 	for (int i=0; i < textureDim; i++)
 	{
 		for (int j=0; j < textureDim; j++)
 		{
-			faceMask[i][j] = ( rasterizedFaceId[i][j] > -1 ) ? 1.0 : 0.0;
+			dilatedMask[i][j] = faceMask[i][j] = ( rasterizedFaceId[ i * textureDim + j ] > -1 ) ? 1.0 : 0.0;
 		}
 	}
 	
-	// create mask: dilate white by 1 pixel border
+	// create mask: dilate on white by 1 pixel border
 	nexti = nextj = previ = prevj = 0;
 	for (int i=0; i < textureDim; i++)
 	{
@@ -1789,13 +1803,29 @@ void dilatePatchesBorders(int textureDim, int **rasterizedFaceId, float *origina
 	}
 	
 	// apply interpolation mask
+	nexti = nextj = previ = prevj = 0;
 	for (int i=0; i < textureDim; i++)
 	{
+		nexti = (i+1) % textureDim;
+		previ = (textureDim+i-1) % textureDim;
 		for (int j=0; j < textureDim; j++)
 		{
+			nextj = (j+1) % textureDim;
+			prevj = (textureDim+j-1) % textureDim;
 			if ( dilatedMask[i][j] == 1.0 )
 			{
-				originalTexture[ i * textureDim + j ] = 1.0;
+				pixelSum = 0.0;
+				
+				pixelSum += originalTexture[nexti * textureDim + j];
+				pixelSum += originalTexture[previ * textureDim + j];
+				pixelSum += originalTexture[i * textureDim + nextj];
+				pixelSum += originalTexture[i * textureDim + prevj];
+				pixelSum += originalTexture[nexti * textureDim + nextj];
+				pixelSum += originalTexture[nexti * textureDim + prevj];
+				pixelSum += originalTexture[previ * textureDim + nextj];
+				pixelSum += originalTexture[previ * textureDim + prevj];
+				
+				originalTexture[ i * textureDim + j ] = pixelSum / 8.0;
 			}
 		}
 	}
@@ -1808,6 +1838,7 @@ void dilatePatchesBorders(int textureDim, int **rasterizedFaceId, float *origina
 	}
 	free(faceMask);
 	free(dilatedMask);
+	free(rasterizedFaceId);
 }
 
 bool pointInTriangle(float2 p, float2 t0, float2 t1, float2 t2, float &beta, float &gamma)

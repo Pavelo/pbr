@@ -1735,7 +1735,7 @@ CUTBoolean createPointCloud(int desiredMapResolution, int *balancedMapResolution
 void dilatePatchesBorders(unsigned int currentMap, int textureDim, float *originalTexture)
 {
 	int nexti, nextj, previ, prevj, *rasterizedFaceId;
-	float **faceMask, **dilatedMask, intorno[8];
+	float **faceMask, **dilatedMask, pixelSum;
 	
 	// allocate mem
 	rasterizedFaceId = (int*) malloc( textureDim * textureDim * sizeof(int));
@@ -1815,16 +1815,18 @@ void dilatePatchesBorders(unsigned int currentMap, int textureDim, float *origin
 			prevj = (textureDim+j-1) % textureDim;
 			if ( dilatedMask[i][j] == 1.0 )
 			{
-				intorno[0] = originalTexture[nexti * textureDim + j];
-				intorno[1] = originalTexture[previ * textureDim + j];
-				intorno[2] = originalTexture[i * textureDim + nextj];
-				intorno[3] = originalTexture[i * textureDim + prevj];
-				intorno[4] = originalTexture[nexti * textureDim + nextj];
-				intorno[5] = originalTexture[nexti * textureDim + prevj];
-				intorno[6] = originalTexture[previ * textureDim + nextj];
-				intorno[7] = originalTexture[previ * textureDim + prevj];
+				pixelSum = 0.0;
 				
-				faceMask[i][j] = *min_element( intorno, intorno+7);
+				pixelSum += originalTexture[nexti * textureDim + j];
+				pixelSum += originalTexture[previ * textureDim + j];
+				pixelSum += originalTexture[i * textureDim + nextj];
+				pixelSum += originalTexture[i * textureDim + prevj];
+				pixelSum += originalTexture[nexti * textureDim + nextj];
+				pixelSum += originalTexture[nexti * textureDim + prevj];
+				pixelSum += originalTexture[previ * textureDim + nextj];
+				pixelSum += originalTexture[previ * textureDim + prevj];
+				
+				faceMask[i][j] = pixelSum / 8.0;
 			}
 		}
 	}

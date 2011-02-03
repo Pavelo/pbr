@@ -1325,7 +1325,7 @@ CUTBoolean preprocessing(int argc, char** argv)
 			acc[j] = 1.0;
 		}
 		
-		pathStream << spath << i << ".tga";
+		pathStream << spath << "_" << i << ".tga";
 		path = pathStream.str();
 		pathStream.str("");
 		
@@ -1338,7 +1338,7 @@ CUTBoolean preprocessing(int argc, char** argv)
 			occlusion( multipass, pointCloud, acc, i);
 			dilatePatchesBorders( i, balancedSurfelMapDim[i], acc);
 			cout << "done" << endl;
-			cout << "Saving to \"" << filename << i << ".tga" << "\"... ";
+			cout << "Saving to \"" << filename << "_" << i << ".tga" << "\"... ";
 			cout.flush();
 			
 			ilTexImage (balancedSurfelMapDim[i], // width
@@ -1799,6 +1799,7 @@ void dilatePatchesBorders(unsigned int currentMap, int textureDim, float *origin
 		for (int j=0; j < textureDim; j++)
 		{
 			dilatedMask[i][j] -= faceMask[i][j];
+			faceMask[i][j] = originalTexture[ i * textureDim + j ];
 		}
 	}
 	
@@ -1810,7 +1811,6 @@ void dilatePatchesBorders(unsigned int currentMap, int textureDim, float *origin
 		previ = (textureDim+i-1) % textureDim;
 		for (int j=0; j < textureDim; j++)
 		{
-			faceMask[i][j] = originalTexture[ i * textureDim + j ];
 			nextj = (j+1) % textureDim;
 			prevj = (textureDim+j-1) % textureDim;
 			if ( dilatedMask[i][j] == 1.0 )
@@ -1824,7 +1824,7 @@ void dilatePatchesBorders(unsigned int currentMap, int textureDim, float *origin
 				intorno[6] = originalTexture[previ * textureDim + nextj];
 				intorno[7] = originalTexture[previ * textureDim + prevj];
 				
-				faceMask[i][j] = *min_element( intorno, intorno+7);
+				faceMask[i][j] = *min_element( intorno, intorno+8);
 			}
 		}
 	}

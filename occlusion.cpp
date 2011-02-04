@@ -184,7 +184,7 @@ void setLighting();
 void setAOTextures();
 float faceArea( float2 v0, float2 v1, float2 v2);
 float faceArea( float3 v0, float3 v1, float3 v2);
-int balanceMapResolution( int desiredMapResolution, float solidSurfaceArea, float solidTextureArea, float m_solidSuraceArea, float m_solidTextureArea);
+int balanceMapResolution( int targetMapResolution, float solidSurfaceArea, float solidTextureArea, float target_solidSurfaceArea);
 CUTBoolean createPointCloud( int desiredMapResolution, int *balancedMapResolution, vector<Surfel> &pc);
 CUTBoolean growPointCloud( int mapResolution, vector<Surfel> &pc, Solid &object, int aoTextureId);
 CUTBoolean savePointCloud( vector<Surfel> &pc, const char* path, int *balancedMapResolution);
@@ -1673,25 +1673,24 @@ float faceArea(float2 v0, float2 v1, float2 v2)
 	return faceArea(make_float3(v0.x, v0.y, 0.0), make_float3(v1.x, v1.y, 0.0), make_float3(v2.x, v2.y, 0.0));
 }
 
-int balanceMapResolution(int desiredMapResolution,
+int balanceMapResolution(int targetMapResolution,
 						 float solidSurfaceArea,
 						 float solidTextureArea,
-						 float m_solidSuraceArea,
-						 float m_solidTextureArea)
+						 float target_solidSurfaceArea)
 {
 	float ct, cw;
 	
-	ct = m_solidTextureArea / solidTextureArea;
-	cw = solidSurfaceArea / m_solidSuraceArea;
+	ct = 1.0 / solidTextureArea;
+	cw = solidSurfaceArea / target_solidSurfaceArea;
 	
-	return (int)round( desiredMapResolution * sqrt( ct * cw));
+	return (int)round( targetMapResolution * sqrt( ct * cw));
 }
 
 CUTBoolean createPointCloud(int desiredMapResolution, int *balancedMapResolution, vector<Surfel> &pc)
 {
 	int sid, mapResolution;
-	float target_sArea, sArea, target_tArea, tArea;
-	vector<float> v_sArea, v_tArea;
+	float target_sArea, sArea, tArea;
+	vector<float> v_sArea;
 	vector<Solid>::iterator object;
 	
 	object = scn->s.begin();
@@ -1713,17 +1712,15 @@ CUTBoolean createPointCloud(int desiredMapResolution, int *balancedMapResolution
 		object->surfaceArea = sArea;
 		object->textureArea = tArea;
 		v_sArea.push_back(sArea);
-		v_tArea.push_back(tArea);
 		++object;
 	}
-	target_sArea = *max_element( v_sArea.begin(), v_sArea.end());
-	target_tArea = *min_element( v_sArea.begin(), v_sArea.end());
+	target_sArea = *min_element( v_sArea.begin(), v_sArea.end());
 	
 	sid = 0;
 	object = scn->s.begin();
 	while ( object != scn->s.end() )
 	{
-		mapResolution = balanceMapResolution( desiredMapResolution, object->surfaceArea, object->textureArea, target_sArea, target_tArea);
+		mapResolution = balanceMapResolution( desiredMapResolution, object->surfaceArea, object->textureArea, target_sArea);
 		balancedMapResolution[sid] = mapResolution;
 		growPointCloud( mapResolution, pc, *object, sid++);
 		++object;

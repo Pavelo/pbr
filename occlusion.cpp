@@ -47,6 +47,7 @@ using namespace std;
 #define INIT_ROTATE_Y 330.0f
 #define INIT_LIGHT_ROTATE_X 0.0f
 #define INIT_LIGHT_ROTATE_Y 0.0f
+#define JIT 0.15f
 
 // enumerated types
 enum ViewMode
@@ -186,7 +187,7 @@ float faceArea( float2 v0, float2 v1, float2 v2);
 float faceArea( float3 v0, float3 v1, float3 v2);
 int balanceMapResolution( int targetMapResolution, float solidSurfaceArea, float solidTextureArea, float target_solidSurfaceArea);
 CUTBoolean createPointCloud( int desiredMapResolution, int *balancedMapResolution, vector<Surfel> &pc);
-CUTBoolean growPointCloud( int mapResolution, vector<Surfel> &pc, Solid &object, int aoTextureId);
+CUTBoolean growPointCloud( int mapResolution, vector<Surfel> &pc, Solid &object, int solidId);
 CUTBoolean savePointCloud( vector<Surfel> &pc, const char* path, int *balancedMapResolution);
 CUTBoolean loadPointCloud( const char* path, vector<Surfel> &pc, int *balancedMapResolution);
 float2 texelCentre( int dx, int dy, float du);
@@ -1573,6 +1574,7 @@ CUTBoolean growPointCloud(int mapResolution, vector<Surfel> &pc, Solid &object, 
 	
 	// place a surfel in the centre of each texel and store its UVs;
 	// initialize the barycentric coordinates and face id array.
+	srand(mapResolution);
 	for (int i=0; i < mapResolution; i++)
 	{
 		for (int j=0; j < mapResolution; j++)
@@ -1902,11 +1904,16 @@ float4 rasterizeBorders(int faceId, float2 texelUV, vector<float2> &vt, vector<F
 
 float2 texelCentre(int dx, int dy, float du)
 {
-	float2 uv;
+	float2 uv, noise;
 	
 	uv.x = dx * du + du * 0.5;
 	uv.y = dy * du + du * 0.5;
 	
+	// jitter
+	noise.x = (((float)rand() / (float)RAND_MAX) - 0.5) * 2.0 * du * JIT;
+	noise.y = (((float)rand() / (float)RAND_MAX) - 0.5) * 2.0 * du * JIT;
+	uv = add( uv, noise);
+
 	return uv;
 }
 

@@ -1690,10 +1690,10 @@ int balanceMapResolution(int desiredMapResolution,
 CUTBoolean createPointCloud(int desiredMapResolution, int *balancedMapResolution, vector<Surfel> &pc)
 {
 	int sid, mapResolution;
-	float m_sArea, sArea, m_tArea, tArea;
+	float target_sArea, sArea, target_tArea, tArea;
+	vector<float> v_sArea, v_tArea;
 	vector<Solid>::iterator object;
 	
-	m_sArea = m_tArea = 0.0;
 	object = scn->s.begin();
 	while ( object != scn->s.end() )
 	{
@@ -1712,18 +1712,18 @@ CUTBoolean createPointCloud(int desiredMapResolution, int *balancedMapResolution
 		}
 		object->surfaceArea = sArea;
 		object->textureArea = tArea;
-		m_sArea += sArea;
-		m_tArea += tArea;
+		v_sArea.push_back(sArea);
+		v_tArea.push_back(tArea);
 		++object;
 	}
-	m_sArea /= (float) scn->s.size();
-	m_tArea /= (float) scn->s.size();
+	target_sArea = *max_element( v_sArea.begin(), v_sArea.end());
+	target_tArea = *min_element( v_sArea.begin(), v_sArea.end());
 	
 	sid = 0;
 	object = scn->s.begin();
 	while ( object != scn->s.end() )
 	{
-		mapResolution = balanceMapResolution( desiredMapResolution, object->surfaceArea, object->textureArea, m_sArea, m_tArea);
+		mapResolution = balanceMapResolution( desiredMapResolution, object->surfaceArea, object->textureArea, target_sArea, target_tArea);
 		balancedMapResolution[sid] = mapResolution;
 		growPointCloud( mapResolution, pc, *object, sid++);
 		++object;

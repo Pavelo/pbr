@@ -1323,7 +1323,7 @@ CUTBoolean preprocessing(int argc, char** argv)
 	{
 		acc = (float*) realloc( (void*)acc, balancedSurfelMapDim[i] * balancedSurfelMapDim[i] * sizeof(float));
 		for (int j=0; j < balancedSurfelMapDim[i] * balancedSurfelMapDim[i]; j++) {
-			acc[j] = 1.0;
+			acc[j] = 0.0;
 		}
 		
 		pathStream << spath << "_" << i << ".tga";
@@ -1823,7 +1823,7 @@ void dilatePatchesBorders(unsigned int currentMap, int textureDim, float *origin
 				intorno[6] = originalTexture[previ * textureDim + nextj];
 				intorno[7] = originalTexture[previ * textureDim + prevj];
 				
-				faceMask[i][j] = *min_element( intorno, intorno+8);
+				faceMask[i][j] = *max_element( intorno, intorno+8);
 			}
 		}
 	}

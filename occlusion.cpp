@@ -47,7 +47,7 @@ using namespace std;
 #define INIT_ROTATE_Y 330.0f
 #define INIT_LIGHT_ROTATE_X 0.0f
 #define INIT_LIGHT_ROTATE_Y 0.0f
-#define JIT 0.15f
+#define JIT 0.10f
 
 // enumerated types
 enum ViewMode
@@ -1906,8 +1906,8 @@ float2 texelCentre(int dx, int dy, float du)
 {
 	float2 uv, noise;
 	
-	uv.x = dx * du + du * 0.5;
-	uv.y = dy * du + du * 0.5;
+	uv.x = (dx + 0.5) * du;
+	uv.y = (dy + 0.5) * du;
 	
 	// jitter
 	noise.x = (((float)rand() / (float)RAND_MAX) - 0.5) * 2.0 * du * JIT;

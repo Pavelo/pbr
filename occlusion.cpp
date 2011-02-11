@@ -117,7 +117,6 @@ struct _Material
 	
 	GLuint textureId;
 	string textureName;
-	string texturePath;
 };
 
 struct _Surfel
@@ -144,8 +143,11 @@ ViewMode view_model = S_DIR_LIGHTS;
 float light_rotate_x = INIT_LIGHT_ROTATE_X, light_rotate_y = INIT_LIGHT_ROTATE_Y;
 float light_orientation[] = {0.0, 0.2, 0.8, 0.0};
 bool altPressed = false;
-GLuint shaderSelected = 0, shaderID[8];
+bool texturesEnabled = true;
+GLuint shaderSelected = 0, shaderID[8], whiteTexId;
 ILuint *imgId;
+ILuint *itexId;
+GLint loc0, loc1;
 int counter = 0;
 
 // mouse controls
@@ -182,6 +184,7 @@ CUTBoolean preprocessing( int argc, char** argv);
 CUTBoolean run( int argc, char** argv);
 void cleanup();
 void setLighting();
+void setTextures();
 void setAOTextures();
 float faceArea( float2 v0, float2 v1, float2 v2);
 float faceArea( float3 v0, float3 v1, float3 v2);
@@ -205,6 +208,7 @@ bool handleDevILErrors();
 
 // GL functionality
 CUTBoolean initGL( int argc, char** argv);
+void loadTextureFromDisk( string dir, string textureName);
 CUTBoolean loadMTL( const char* path);
 CUTBoolean loadOBJ( const char* path);
 void drawCube( float size);
@@ -413,6 +417,7 @@ CUTBoolean initGL(int argc, char **argv)
 	shaderSelected = shaderID[0];
 	
 	// texturing
+	setTextures();
 	setAOTextures();
 
     CUT_CHECK_ERROR_GL();
@@ -554,6 +559,10 @@ void display()
 	glPopMatrix();
 
 	glUseProgram(shaderSelected);
+	loc0 = glGetUniformLocation(shaderSelected, "tex0");
+	loc1 = glGetUniformLocation(shaderSelected, "tex1");
+	glUniform1i(loc0, 0); //first texture sampler
+	glUniform1i(loc1, 1); //second texture sampler.
 	
 	switch (view_model)
 	{
@@ -598,6 +607,7 @@ void cleanup()
 	
 	free(scn);
 	free(imgId);
+	free(itexId);
 }
 
 
@@ -663,11 +673,11 @@ void keyboard(unsigned char key, int /*x*/, int /*y*/)
 			light_rotate_y += 90.0f - fmod( light_rotate_y, 90.0f);
 			break;
 			
-	// use shaders
-//		case 's':
-//		case 'S':
-//			shaderSelected = shaderSelected ? 0 : shaderID;
-//			break;
+	// use textures
+		case 't':
+		case 'T':
+			texturesEnabled = !texturesEnabled;
+			break;
 
 	// press space to reset camera view, or alt+space to reset lights position
 		case 32:
@@ -825,6 +835,29 @@ void drawCube(float size)
 	glFrontFace(GL_CCW);
 }
 
+void loadTextureFromDisk(string dir, string textureName)
+{
+	string path;
+	unsigned char whiteImg[] = {255,255,255,255};
+	
+	if (textureName == "")
+	{
+		ilTexImage (2,                  // width
+					2,                  // height
+					1,                  // depth
+					1,                  // Bpp
+					IL_LUMINANCE,       // format
+					IL_UNSIGNED_BYTE,   // type
+					whiteImg);          // data
+	}
+	else
+	{
+		path = dir + textureName;
+		ilLoadImage(path.c_str());
+	}
+	ilConvertImage(IL_RGBA,IL_UNSIGNED_BYTE);
+}
+
 CUTBoolean loadMTL(const char* path)
 {
 	Material mtl;
@@ -841,18 +874,10 @@ CUTBoolean loadMTL(const char* path)
 			getline(fp, s_line);
 			line = s_line.c_str();
 			
-//			if (s_line.find("map_Kd") == 0)
-//			{
-//				tn = s_line.substr(7);
-//				tp = "textures/" + tn;
-//				mtl.textureName = &tn;
-//				mtl.texturePath = &tp;
-				// manca il caricamento della texture da TGA
-//				strncpy(mtl.textureName, line + 7, strlen(line)-8);
-//				printf(" [%s ", mtl.textureName);
-//				sprintf(mtl.texturePath, "texture/%s", mtl.textureName);
-//				printf("%d]", loadTGA(mtl.texturePath, mtl.textureId));
-//			}
+			if (s_line.find("map_Kd") == 0)
+			{
+				mtl.textureName = s_line.substr(7);
+			}
 			if (s_line.find("newmtl") == 0)
 			{
 				// old material
@@ -1048,21 +1073,30 @@ void drawSolid(Solid &mesh)
 	glMaterialfv(GL_FRONT, GL_SPECULAR, mesh.mat->specular);
 	glMaterialf(GL_FRONT, GL_SHININESS, mesh.mat->shininess);
 	
+	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, mesh.aotId);
+	glActiveTexture(GL_TEXTURE1);
+	if ( texturesEnabled )
+		glBindTexture(GL_TEXTURE_2D, mesh.mat->textureId);
+	else
+		glBindTexture(GL_TEXTURE_2D, whiteTexId);
 
 	glBegin(GL_TRIANGLES);
 	for (unsigned int i = mesh.faceBegin; i <= mesh.faceEnd; i++)
 	{
 		glNormal3f(scn->vn[scn->f[i].n.x-1].x, scn->vn[scn->f[i].n.x-1].y, scn->vn[scn->f[i].n.x-1].z);
-		glTexCoord2f(scn->vt[scn->f[i].t.x-1].x, scn->vt[scn->f[i].t.x-1].y);
+		glMultiTexCoord2f(GL_TEXTURE0, scn->vt[scn->f[i].t.x-1].x, scn->vt[scn->f[i].t.x-1].y);
+		glMultiTexCoord2f(GL_TEXTURE1, scn->vt[scn->f[i].t.x-1].x, scn->vt[scn->f[i].t.x-1].y);
 		glVertex3f(scn->v[scn->f[i].v.x-1].pos.x, scn->v[scn->f[i].v.x-1].pos.y, scn->v[scn->f[i].v.x-1].pos.z);
 		
 		glNormal3f(scn->vn[scn->f[i].n.y-1].x, scn->vn[scn->f[i].n.y-1].y, scn->vn[scn->f[i].n.y-1].z);
-		glTexCoord2f(scn->vt[scn->f[i].t.y-1].x, scn->vt[scn->f[i].t.y-1].y);
+		glMultiTexCoord2f(GL_TEXTURE0, scn->vt[scn->f[i].t.y-1].x, scn->vt[scn->f[i].t.y-1].y);
+		glMultiTexCoord2f(GL_TEXTURE1, scn->vt[scn->f[i].t.y-1].x, scn->vt[scn->f[i].t.y-1].y);
 		glVertex3f(scn->v[scn->f[i].v.y-1].pos.x, scn->v[scn->f[i].v.y-1].pos.y, scn->v[scn->f[i].v.y-1].pos.z);
 		
 		glNormal3f(scn->vn[scn->f[i].n.z-1].x, scn->vn[scn->f[i].n.z-1].y, scn->vn[scn->f[i].n.z-1].z);
-		glTexCoord2f(scn->vt[scn->f[i].t.z-1].x, scn->vt[scn->f[i].t.z-1].y);
+		glMultiTexCoord2f(GL_TEXTURE0, scn->vt[scn->f[i].t.z-1].x, scn->vt[scn->f[i].t.z-1].y);
+		glMultiTexCoord2f(GL_TEXTURE1, scn->vt[scn->f[i].t.z-1].x, scn->vt[scn->f[i].t.z-1].y);
 		glVertex3f(scn->v[scn->f[i].v.z-1].pos.x, scn->v[scn->f[i].v.z-1].pos.y, scn->v[scn->f[i].v.z-1].pos.z);
 	}
 	glEnd();
@@ -1189,7 +1223,8 @@ CUTBoolean preprocessing(int argc, char** argv)
 {
 	int surfelMapDim, *balancedSurfelMapDim;
 
-	// load poly mesh
+	// loading scene
+	vector<Material>::iterator mat;
 	string dir, filename, path, spath, msg;
 	stringstream pathStream;
 	char** cfilename;
@@ -1216,12 +1251,40 @@ CUTBoolean preprocessing(int argc, char** argv)
 		cerr << "File \"" << filename << "\" not found!" << endl;
 		return CUTFalse;
 	}
-	
 	if ( scn->vt.empty() )
 	{
 		cerr << "UVs not mapped!\nPlease, load a mesh with mapped texture coordinates." << endl;
 		return CUTFalse;
 	}
+
+	// load textures
+	int idn;
+	unsigned char whiteImg[] = {255,255,255,255};
+	unsigned int nMaterials = scn->m.size() + 1;
+
+	itexId = (ILuint*) malloc( nMaterials * sizeof(ILuint));
+	ilGenImages( nMaterials, itexId);
+
+	idn = 0;
+	mat = scn->m.begin();
+	while ( mat != scn->m.end() )
+	{
+		ilBindImage(itexId[idn++]);
+		loadTextureFromDisk("/Developer/GPU Computing/C/src/occlusion/textures/", mat->textureName);
+		++mat;
+	}
+	handleDevILErrors();
+	
+	ilBindImage(itexId[idn]);
+	ilTexImage (2,                  // width
+				2,                  // height
+				1,                  // depth
+				1,                  // Bpp
+				IL_LUMINANCE,       // format
+				IL_UNSIGNED_BYTE,   // type
+				whiteImg);          // data
+	ilConvertImage(IL_RGBA,IL_UNSIGNED_BYTE);
+	
 	// calculate face centroid and normal
 	Face* tempF;
 	for (unsigned int i=0;  i < scn->f.size(); i++) {
@@ -1360,7 +1423,7 @@ CUTBoolean preprocessing(int argc, char** argv)
 		}
 		else
 		{ // occlusion map exists
-			cout << "Ambient occlusion map \"" << filename << i << ".tga" << "\" loaded correctly" << endl;
+			cout << "Ambient occlusion map \"" << filename << "_" << i << ".tga" << "\" loaded correctly" << endl;
 		}
 		ilConvertImage(IL_LUMINANCE, IL_FLOAT);
 	}
@@ -1411,6 +1474,60 @@ void noiseTexture(float* texel, int dim)
 	}
 }
 
+void setTextures()
+{
+	unsigned int nMaterials = scn->m.size();
+	GLuint tid[nMaterials+1];
+	ILubyte* occImg;
+	
+	glGenTextures (nMaterials+1, tid);
+	
+	for (unsigned int i=0; i < nMaterials; i++)
+	{
+		ilBindImage( itexId[i]);
+		occImg = ilGetData();
+		scn->m[i].textureId = tid[i];
+		glBindTexture (GL_TEXTURE_2D, tid[i]);
+		glPixelStorei (GL_UNPACK_ALIGNMENT, 1);
+		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+//		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+//		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexEnvf (GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+		glTexImage2D(GL_TEXTURE_2D,
+					 0,
+					 GL_RGBA,
+					 ilGetInteger( IL_IMAGE_WIDTH),
+					 ilGetInteger( IL_IMAGE_HEIGHT),
+					 0,
+					 GL_RGBA,
+					 GL_UNSIGNED_BYTE,
+					 occImg);
+	}
+	// set an extra texture (the white texture)
+	ilBindImage( itexId[nMaterials]);
+	occImg = ilGetData();
+	whiteTexId = tid[nMaterials];
+	glBindTexture (GL_TEXTURE_2D, tid[nMaterials]);
+	glPixelStorei (GL_UNPACK_ALIGNMENT, 1);
+	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexEnvf (GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+	glTexImage2D(GL_TEXTURE_2D,
+				 0,
+				 GL_RGBA,
+				 ilGetInteger( IL_IMAGE_WIDTH),
+				 ilGetInteger( IL_IMAGE_HEIGHT),
+				 0,
+				 GL_RGBA,
+				 GL_UNSIGNED_BYTE,
+				 occImg);
+}
+
 void setAOTextures()
 {
 	unsigned int nSolids = scn->s.size();
@@ -1426,8 +1543,8 @@ void setAOTextures()
 		scn->s[i].aotId = tid[i];
 		glBindTexture (GL_TEXTURE_2D, tid[i]);
 		glPixelStorei (GL_UNPACK_ALIGNMENT, 1);
-		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
-		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 //		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 //		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);

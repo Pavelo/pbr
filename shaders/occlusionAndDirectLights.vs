@@ -11,5 +11,6 @@ void main()
 	diffuse = gl_FrontMaterial.diffuse * gl_LightSource[0].diffuse;
 
 	gl_TexCoord[0] = gl_TextureMatrix[0] * gl_MultiTexCoord0;
+	gl_TexCoord[1] = gl_TextureMatrix[1] * gl_MultiTexCoord1;
 	gl_Position = ftransform();
 }
